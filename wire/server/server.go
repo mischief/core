@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 	//
 	//	"github.com/flynn/noise"
 	"github.com/op/go-logging"
@@ -28,25 +29,55 @@ import (
 
 var log = logging.MustGetLogger("wire_server")
 
+type Session interface {
+	// Initiate should handle the session in a blocking manner
+	// and return when the session is finished,
+	// the Server will subsequently close the connection.
+	Initiate(conn io.ReadWriter) error
+}
+
+// Options is used to configure various properties of the wire protocol
+// server handler. Default values are used when a nil Options pointer
+// is passed to New.
+type Options struct {
+	maxConcurrency    int
+	readWriteDeadline time.Time
+}
+
+var defaultOptions = Options{
+	maxConcurrency:    10,
+	readWriteDeadline: time.Time{},
+}
+
 // Server is the server wire protocol struct
 // for our link layer.
 type Server struct {
-	network string
-	address string
-
+	options   *Options
+	network   string
+	address   string
 	conns     []net.Conn
 	listener  net.Listener
 	waitGroup *sync.WaitGroup
 	stopping  bool
+	session   Session
 }
 
 // New creates a new Server given
-// network and address strings
-func New(network, address string) *Server {
+// network, address strings and options
+func New(network, address string, session Session, options *Options) *Server {
 	wire := Server{
-		network: network,
-		address: address,
+		network:   network,
+		address:   address,
+		session:   session,
+		stopping:  false,
+		waitGroup: &sync.WaitGroup{},
 	}
+	if options == nil {
+		wire.options = &defaultOptions
+	} else {
+		wire.options = options
+	}
+	wire.conns = make([]net.Conn, 0, wire.options.maxConcurrency)
 	return &wire
 }
 
@@ -107,7 +138,15 @@ func (w *Server) acceptLoop() {
 			}
 			return
 		}
-
+		if len(w.conns) == w.options.maxConcurrency {
+			log.Error("server max concurrency reached. closing new connection.")
+			err := conn.Close()
+			if err != nil {
+				log.Debugf("failed to close: %s", err)
+			}
+			continue
+		}
+		conn.SetDeadline(w.options.readWriteDeadline)
 		w.conns = append(w.conns, conn)
 		go w.handleConnection(conn, len(w.conns)-1)
 	}
@@ -126,15 +165,21 @@ func (w *Server) handleConnection(conn net.Conn, id int) {
 	}()
 
 	log.Debugf("Starting connection #%d", id)
-	if err := w.receiveHandshake(conn); err != nil {
-		log.Debugf(err.Error())
+	if err := w.session.Initiate(conn); err != nil {
+		log.Debugf("server session initiation error: %s", err.Error())
 	}
 }
 
-// receiveHandshake receives a handshake from our client.
+// NoiseSession is a noise based wire protocol
+// as specified in the Panoramix Mix Network Wire
+// Protocol Specification
+type NoiseSession struct {
+}
+
+// Initiate receives a handshake from our client.
 // This is the beginning of our wire protocol state machine
 // where the noise handshake is received and responded to.
-func (w *Server) receiveHandshake(conn io.ReadWriter) error {
+func (w *NoiseSession) Initiate(conn io.ReadWriter) error {
 
 	// XXX todo: write me
 	return nil

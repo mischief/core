@@ -164,16 +164,16 @@ func (w *Server) handleConnection(conn net.Conn, id int) {
 	}
 }
 
-// NoiseSession is a noise based wire protocol
-// as specified in the Panoramix Mix Network Wire
-// Protocol Specification
-type NoiseSession struct {
+// ServerSession is the server side of our
+// noise based wire protocol as specified in the
+// Panoramix Mix Network Wire Protocol Specification
+type ServerSession struct {
 }
 
 // Initiate receives a handshake from our client.
 // This is the beginning of our wire protocol state machine
 // where the noise handshake is received and responded to.
-func (w *NoiseSession) Initiate(conn io.ReadWriter) error {
+func (w *ServerSession) Initiate(conn io.ReadWriter) error {
 
 	// XXX todo: write me
 	return nil

@@ -14,7 +14,10 @@ import (
 
 	"github.com/Katzenpost/core/wire/common"
 	"github.com/flynn/noise"
+	"github.com/op/go-logging"
 )
+
+var log = logging.MustGetLogger("client")
 
 // Options is used to configure various properties of the wire protocol
 // client connection pool. Default values are used when a nil Options pointer
@@ -72,6 +75,8 @@ func New(options *Options, config *Config, random io.Reader) *Client {
 
 // StopConn is used to stop a particular connection
 func (p *Client) StopConn(network, addr string) {
+	log.Debugf("stopping connection to %s:%s", network, addr)
+	p.connMap[network+addr].Close()
 	delete(p.connMap, network+addr)
 	delete(p.sendChMap, network+addr)
 	delete(p.receiveChMap, network+addr)
@@ -81,6 +86,7 @@ func (p *Client) retryDial(network, addr string) error {
 	var err error
 	attempt := 1
 	for {
+		log.Debugf("dialing attempt %s to %s:%s", attempt, network, addr)
 		err = p.dial(network, addr)
 		if err == nil {
 			break

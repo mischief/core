@@ -14,9 +14,9 @@ import (
 	//	"github.com/flynn/noise"
 )
 
-// KatzenWireServer is the server wire protocol struct
-// for Katzenpost link layer.
-type KatzenWireServer struct {
+// Server is the server wire protocol struct
+// for our link layer.
+type Server struct {
 	network string
 	address string
 
@@ -26,18 +26,18 @@ type KatzenWireServer struct {
 	stopping  bool
 }
 
-// NewKatzenWireServer creates a new KatzenWireServer given
+// New creates a new Server given
 // network and address strings
-func NewKatzenWireServer(network, address string) *KatzenWireServer {
-	wire := KatzenWireServer{
+func New(network, address string) *Server {
+	wire := Server{
 		network: network,
 		address: address,
 	}
 	return &wire
 }
 
-// Start the KatzenWireServer
-func (w *KatzenWireServer) Start() error {
+// Start the Server
+func (w *Server) Start() error {
 	var err error
 	w.listener, err = net.Listen(w.network, w.address)
 	if err != nil {
@@ -49,7 +49,7 @@ func (w *KatzenWireServer) Start() error {
 }
 
 // Stop will kill our listener and all it's connections
-func (w *KatzenWireServer) Stop() {
+func (w *Server) Stop() {
 	w.stopping = true
 	if w.listener != nil {
 		w.listener.Close()
@@ -58,7 +58,7 @@ func (w *KatzenWireServer) Stop() {
 }
 
 // acceptLoop is called by our Start method
-func (w *KatzenWireServer) acceptLoop() {
+func (w *Server) acceptLoop() {
 	defer w.waitGroup.Done()
 	defer func() {
 		for _, conn := range w.conns {
@@ -72,11 +72,10 @@ func (w *KatzenWireServer) acceptLoop() {
 	for {
 		conn, err := w.listener.Accept()
 		if err != nil {
-			if w.stopping {
-				return
-			} else {
+			if !w.stopping {
 				continue
 			}
+			return
 		}
 
 		w.conns = append(w.conns, conn)
@@ -86,7 +85,7 @@ func (w *KatzenWireServer) acceptLoop() {
 
 // handleConnection is called implicitly by our Start method via our
 // acceptLoop method
-func (w *KatzenWireServer) handleConnection(conn net.Conn, id int) error {
+func (w *Server) handleConnection(conn net.Conn, id int) error {
 	defer func() {
 		conn.Close()
 		w.conns[id] = nil
@@ -101,7 +100,7 @@ func (w *KatzenWireServer) handleConnection(conn net.Conn, id int) error {
 // receiveHandshake receives a handshake from our client.
 // This is the beginning of our wire protocol state machine
 // where the noise handshake is received and responded to.
-func (w *KatzenWireServer) receiveHandshake(conn io.ReadWriter) error {
+func (w *Server) receiveHandshake(conn io.ReadWriter) error {
 
 	// XXX todo: write me
 	return nil

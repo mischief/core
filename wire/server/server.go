@@ -22,19 +22,13 @@ import (
 	"net"
 	"sync"
 	"time"
-	//
-	//	"github.com/flynn/noise"
+
+	"github.com/Katzenpost/core/wire/common"
 	"github.com/op/go-logging"
+	//"github.com/flynn/noise"
 )
 
 var log = logging.MustGetLogger("wire_server")
-
-type Session interface {
-	// Initiate should handle the session in a blocking manner
-	// and return when the session is finished,
-	// the Server will subsequently close the connection.
-	Initiate(conn io.ReadWriter) error
-}
 
 // Options is used to configure various properties of the wire protocol
 // server handler. Default values are used when a nil Options pointer
@@ -59,12 +53,12 @@ type Server struct {
 	listener  net.Listener
 	waitGroup *sync.WaitGroup
 	stopping  bool
-	session   Session
+	session   common.Session
 }
 
 // New creates a new Server given
 // network, address strings and options
-func New(network, address string, session Session, options *Options) *Server {
+func New(network, address string, session common.Session, options *Options) *Server {
 	wire := Server{
 		network:   network,
 		address:   address,

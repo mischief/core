@@ -1,4 +1,4 @@
-// common.go - Constant variables.
+// common.go - Common code for clients and servers of our wire protocol.
 // Copyright (C) 2017  David Anthony Stainton
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,6 +16,10 @@
 
 package common
 
+import (
+	"io"
+)
+
 const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
@@ -26,3 +30,11 @@ const (
 	// PrologueSize is the size of our noise handshake prologue
 	PrologueSize = 1
 )
+
+// Session is an interface for implementing Client or Server protocols.
+type Session interface {
+	// Initiate should handle the session in a blocking manner
+	// and return when the session is finished,
+	// the Server/Client will subsequently close the connection.
+	Initiate(conn io.ReadWriter) error
+}

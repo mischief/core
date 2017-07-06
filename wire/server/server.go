@@ -12,7 +12,10 @@ import (
 	"sync"
 	//
 	//	"github.com/flynn/noise"
+	"github.com/op/go-logging"
 )
+
+var log = logging.MustGetLogger("wire_server")
 
 // Server is the server wire protocol struct
 // for our link layer.
@@ -39,6 +42,7 @@ func New(network, address string) *Server {
 // Start the Server
 func (w *Server) Start() error {
 	var err error
+	log.Debugf("starting server %s:%s", w.network, w.address)
 	w.listener, err = net.Listen(w.network, w.address)
 	if err != nil {
 		return err
@@ -50,9 +54,13 @@ func (w *Server) Start() error {
 
 // Stop will kill our listener and all it's connections
 func (w *Server) Stop() {
+	log.Debugf("stopping server %s:%s", w.network, w.address)
 	w.stopping = true
 	if w.listener != nil {
-		w.listener.Close()
+		err := w.listener.Close()
+		if err != nil {
+			// XXX log error
+		}
 	}
 	w.waitGroup.Wait()
 }
@@ -61,8 +69,10 @@ func (w *Server) Stop() {
 func (w *Server) acceptLoop() {
 	defer w.waitGroup.Done()
 	defer func() {
-		for _, conn := range w.conns {
+		log.Debugf("acceptLoop stopping for listener service %s:%s", w.network, w.address)
+		for i, conn := range w.conns {
 			if conn != nil {
+				log.Debugf("Closing connection #%d", i)
 				conn.Close()
 			}
 		}
@@ -72,6 +82,7 @@ func (w *Server) acceptLoop() {
 	for {
 		conn, err := w.listener.Accept()
 		if err != nil {
+			log.Errorf("server connection accept failure: %s\n", err)
 			if !w.stopping {
 				continue
 			}
@@ -87,11 +98,14 @@ func (w *Server) acceptLoop() {
 // acceptLoop method
 func (w *Server) handleConnection(conn net.Conn, id int) error {
 	defer func() {
+		log.Debugf("Closing connection #%d", id)
 		conn.Close()
 		w.conns[id] = nil
 	}()
 
+	log.Debugf("Starting connection #%d", id)
 	if err := w.receiveHandshake(conn); err != nil {
+		log.Debugf(err.Error())
 		return err
 	}
 	return nil

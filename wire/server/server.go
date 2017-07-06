@@ -59,7 +59,7 @@ func (w *Server) Stop() {
 	if w.listener != nil {
 		err := w.listener.Close()
 		if err != nil {
-			// XXX log error
+			log.Debugf("failed to close: %s", err)
 		}
 	}
 	w.waitGroup.Wait()
@@ -73,11 +73,19 @@ func (w *Server) acceptLoop() {
 		for i, conn := range w.conns {
 			if conn != nil {
 				log.Debugf("Closing connection #%d", i)
-				conn.Close()
+				err := conn.Close()
+				if err != nil {
+					log.Debugf("failed to close: %s", err)
+				}
 			}
 		}
 	}()
-	defer w.listener.Close()
+	defer func() {
+		err := w.listener.Close()
+		if err != nil {
+			log.Debugf("failed to close: %s", err)
+		}
+	}()
 
 	for {
 		conn, err := w.listener.Accept()
@@ -96,19 +104,20 @@ func (w *Server) acceptLoop() {
 
 // handleConnection is called implicitly by our Start method via our
 // acceptLoop method
-func (w *Server) handleConnection(conn net.Conn, id int) error {
+func (w *Server) handleConnection(conn net.Conn, id int) {
 	defer func() {
 		log.Debugf("Closing connection #%d", id)
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			log.Debugf("failed to close: %s", err)
+		}
 		w.conns[id] = nil
 	}()
 
 	log.Debugf("Starting connection #%d", id)
 	if err := w.receiveHandshake(conn); err != nil {
 		log.Debugf(err.Error())
-		return err
 	}
-	return nil
 }
 
 // receiveHandshake receives a handshake from our client.

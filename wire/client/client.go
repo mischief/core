@@ -76,7 +76,10 @@ func New(options *Options, config *Config, random io.Reader) *Client {
 // StopConn is used to stop a particular connection
 func (p *Client) StopConn(network, addr string) {
 	log.Debugf("stopping connection to %s:%s", network, addr)
-	p.connMap[network+addr].Close()
+	err := p.connMap[network+addr].Close()
+	if err != nil {
+		log.Debugf("failed to close: %s", err)
+	}
 	delete(p.connMap, network+addr)
 	delete(p.sendChMap, network+addr)
 	delete(p.receiveChMap, network+addr)

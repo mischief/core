@@ -106,11 +106,3 @@ func (w *KatzenWireServer) receiveHandshake(conn io.ReadWriter) error {
 	// XXX todo: write me
 	return nil
 }
-
-type KatzenWireClient struct {
-}
-
-func NewKatzenWireClient() *KatzenWireClient {
-	wire := KatzenWireClient{}
-	return &wire
-}

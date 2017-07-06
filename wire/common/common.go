@@ -7,9 +7,12 @@
 package common
 
 const (
-	// Maximum payload size permitted by wire protocol
-	MaxPayloadSize   = 65515
+	// MaxPayloadSize is the maximum payload size permitted by wire protocol
+	MaxPayloadSize = 65515
+	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
-	Ed25519KeySize   = 32
-	PrologueSize     = 1
+	// Ed25519KeySize is the size of an ed25519 key
+	Ed25519KeySize = 32
+	// PrologueSize is the size of our noise handshake prologue
+	PrologueSize = 1
 )

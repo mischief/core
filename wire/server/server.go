@@ -134,13 +134,16 @@ func (w *Server) acceptLoop() {
 		}
 		if len(w.conns) == w.options.maxConcurrency {
 			log.Error("server max concurrency reached. closing new connection.")
-			err := conn.Close()
+			err = conn.Close()
 			if err != nil {
 				log.Debugf("failed to close: %s", err)
 			}
 			continue
 		}
-		conn.SetDeadline(w.options.readWriteDeadline)
+		err = conn.SetDeadline(w.options.readWriteDeadline)
+		if err != nil {
+			log.Debugf("failed to set deadline: %s", err)
+		}
 		w.conns = append(w.conns, conn)
 		go w.handleConnection(conn, len(w.conns)-1)
 	}
@@ -164,17 +167,28 @@ func (w *Server) handleConnection(conn net.Conn, id int) {
 	}
 }
 
-// ServerSession is the server side of our
+// Session is the server side of our
 // noise based wire protocol as specified in the
 // Panoramix Mix Network Wire Protocol Specification
-type ServerSession struct {
+type Session struct {
 }
 
 // Initiate receives a handshake from our client.
 // This is the beginning of our wire protocol state machine
 // where the noise handshake is received and responded to.
-func (w *ServerSession) Initiate(conn io.ReadWriter) error {
+func (w *Session) Initiate(conn io.ReadWriter) error {
+	// XXX todo: write me
+	return nil
+}
 
+// Close closes the session.
+func (w *Session) Close() error {
+	// XXX todo: write me
+	return nil
+}
+
+// Send sends a payload.
+func (w *Session) Send(payload []byte) error {
 	// XXX todo: write me
 	return nil
 }

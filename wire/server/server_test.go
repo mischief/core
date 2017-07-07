@@ -37,6 +37,14 @@ func (e EchoSession) Initiate(conn io.ReadWriter) error {
 	return nil
 }
 
+func (e EchoSession) Close() error {
+	return nil
+}
+
+func (e EchoSession) Send(payload []byte) error {
+	return nil
+}
+
 func TestServer(t *testing.T) {
 	assert := assert.New(t)
 
@@ -45,7 +53,12 @@ func TestServer(t *testing.T) {
 	echoSession := EchoSession{}
 	l := New(network, address, echoSession, nil)
 	defer l.Stop()
-	go l.Start()
+	go func() {
+		err := l.Start()
+		if err != nil {
+			panic(err)
+		}
+	}()
 
 	time.Sleep(time.Second)
 
@@ -63,7 +76,12 @@ func TestServer(t *testing.T) {
 				fmt.Println(err.Error())
 				return
 			}
-			defer conn.Close()
+			defer func() {
+				err := conn.Close()
+				if err != nil {
+					panic(err)
+				}
+			}()
 
 			for j := 0; j < 10; j++ {
 				message := fmt.Sprintf("client #%d, count %d\r\n", id, j)

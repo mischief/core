@@ -45,10 +45,12 @@ type Config struct {
 // Noise based wire protocol as specified in the
 // Panoramix Mix Network Wire Protocol Specification
 type Session struct {
-	options             *Options
-	noiseConfig         noise.Config
-	noiseHandshakeState *noise.HandshakeState
-	conn                io.ReadWriteCloser
+	options      *Options
+	conn         io.ReadWriteCloser
+	noiseConfig  noise.Config
+	hsState      *noise.HandshakeState // hsState is the Noise handshake state
+	cipherState0 *noise.CipherState
+	cipherState1 *noise.CipherState
 }
 
 // New creates a new session.
@@ -67,6 +69,7 @@ func New(config *Config, options *Options) *Session {
 	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
 	session.noiseConfig.StaticKeypair = config.StaticKeypair
 	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(config.Random)
+	session.hsState = noise.NewHandshakeState(session.noiseConfig)
 	return &session
 }
 
@@ -74,20 +77,41 @@ func New(config *Config, options *Options) *Session {
 // and returns when the session is finished.
 func (s *Session) Initiate(conn io.ReadWriteCloser) error {
 	s.conn = conn
-	count, err := s.conn.Write([]byte("client handshake message"))
+
+	clientHsMsg := make([]byte, 1)
+	hsMsg := make([]byte, 32)
+	hsMsg, _, _ = s.hsState.WriteMessage(nil, nil)
+
+	clientHsMsg[0] = s.options.PrologueVersion
+	clientHsMsg = append(clientHsMsg, hsMsg...)
+
+	count, err := s.conn.Write(clientHsMsg)
 	if err != nil {
 		panic(err)
 	}
-	log.Debugf("client sent handshake message len %d", count)
+	if count != len(clientHsMsg) {
+		panic("count unequal")
+	}
+	log.Debug("client sent handshake message")
 
-	// expecting "server handshake message"
-	expected := []byte("server handshake message")
-	receivedHandshake := make([]byte, len(expected))
-	_, err = io.ReadFull(conn, receivedHandshake)
+	receivedHsMsg := make([]byte, 49)
+	_, err = io.ReadFull(conn, receivedHsMsg)
 	if err != nil {
 		panic(err)
 	}
 	log.Debug("client received server handshake message")
+
+	// decode hs message from server
+	clientHsResult := make([]byte, 0)
+	clientHsResult, s.cipherState0, s.cipherState1, err = s.hsState.ReadMessage(nil, receivedHsMsg[1:])
+	if err != nil {
+		panic(err)
+	}
+	if len(clientHsResult) != 0 {
+		panic("client result message is unexpected size")
+	}
+
+	// XXX todo: authentication
 
 	return nil
 }

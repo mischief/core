@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPlainStateMachine(t *testing.T) {
+func TestClientHandshake(t *testing.T) {
 	assert := assert.New(t)
 	config := Config{
 		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
@@ -36,99 +36,68 @@ func TestPlainStateMachine(t *testing.T) {
 	session := New(&config, nil)
 	clientConn, serverConn := net.Pipe()
 
+	serverStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
+	serverConfig := noise.Config{}
+	serverConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	serverConfig.Random = rand.Reader
+	serverConfig.Pattern = noise.HandshakeNN
+	serverConfig.Initiator = false
+	serverConfig.Prologue = []byte{0}
+	serverConfig.StaticKeypair = serverStaticKeypair
+	serverConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
+	serverHs := noise.NewHandshakeState(serverConfig)
+
 	go func() {
 		fmt.Println("server start")
-		expected := []byte("client handshake message")
-		msg := make([]byte, len(expected))
-		_, err := io.ReadFull(serverConn, msg)
-		assert.NoError(err, "server failed to read client handshake message")
 
-		fmt.Printf("server received handshake len %d\n", len(msg))
+		// server reads client's initial handshake message
+		clientHsMsg := make([]byte, 33)
+		_, err := io.ReadFull(serverConn, clientHsMsg)
+		assert.NoError(err, "server failed to receive client handshake message")
+		assert.Equal(33, len(clientHsMsg), "server received unexpected length client handshake message")
 
-		serverHsMsg := []byte("server handshake message")
+		serverHsResult, _, _, err := serverHs.ReadMessage(nil, clientHsMsg[1:])
+		assert.NoError(err, "server failed to 'ReadMessage' client handshake message")
+		assert.Equal(0, len(serverHsResult), "server result message is unexpected size")
+
+		serverHsMsg := make([]byte, 1)
+		hsMsg, csR0, csR1 := serverHs.WriteMessage(nil, nil)
+		serverHsMsg = append(serverHsMsg, hsMsg...)
+
 		count, err := serverConn.Write(serverHsMsg)
 		assert.NoError(err, "server failed to send handshake response message")
 		assert.Equal(count, len(serverHsMsg), "server sent incorrect length handshake message")
 
 		fmt.Println("server sent handshake response")
 
-		// cheat and do a time.Sleep here?
+		authMsg := csR1.Encrypt(nil, nil, []byte("AUTHENTICATE"))
+		count, err = serverConn.Write(authMsg)
+		assert.NoError(err, "server failed to send auth message")
+		assert.Equal(count, len(authMsg), "server sent incorrect length auth message")
+
+		expected := []byte("AUTH ME")
+		clientAuthMsg := make([]byte, len(expected))
+		_, err = io.ReadFull(serverConn, clientAuthMsg)
+		assert.NoError(err, "server failed to receive client auth message")
+
+		res, err := csR0.Decrypt(nil, nil, clientAuthMsg)
+		assert.NoError(err, "server failed to decrypt client auth message")
+		assert.Equal([]byte("AUTH ME"), res, "server received unexpected message")
 	}()
 
 	err := session.Initiate(clientConn)
 	assert.NoError(err, "client failed to Initiate")
 	fmt.Println("after Initiate")
 
-	packet := []byte{0, 1, 2, 3}
-	err = session.Send(packet)
-	assert.NoError(err, "client failed to Send")
-	fmt.Println("after Send")
+	// don't call Send here because the server isn't listening anymore
+	// therefore our Send will block forever
+	//
+	//packet := []byte{0, 1, 2, 3}
+	//err = session.Send(packet)
+	//assert.NoError(err, "client failed to Send")
+	//fmt.Println("after Send")
 
 	err = session.Close()
 	assert.NoError(err, "client failed to Close")
 	fmt.Println("after Close")
-}
-
-func TestSession(t *testing.T) {
-	config := Config{
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
-	}
-	session := New(&config, nil)
-	clientConn, serverConn := net.Pipe()
-
-	// server noise config
-	noiseConfig := noise.Config{}
-	noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	noiseConfig.Random = config.Random
-	noiseConfig.Pattern = noise.HandshakeNN
-	noiseConfig.Initiator = false
-	noiseConfig.Prologue = []byte{session.options.PrologueVersion}
-	noiseConfig.StaticKeypair = config.StaticKeypair
-	noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(config.Random)
-	hs := noise.NewHandshakeState(noiseConfig)
-
-	go func() {
-		fmt.Println("server start")
-		msg := make([]byte, 33)
-		_, err := io.ReadFull(serverConn, msg)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("server received handshake len %d\n", len(msg))
-		if msg[0] != byte(0) {
-			panic("wtf version mismatch")
-		}
-		_, _, _, err = hs.ReadMessage(nil, msg[1:])
-		fmt.Println("after server ReadMessage #1")
-		handshakeMessage, _, _ := hs.WriteMessage(nil, nil)
-		fmt.Printf("len of server response handshake message %d\n", len(handshakeMessage))
-		prologue := byte(0)
-		newMsg := make([]byte, 1)
-		newMsg[0] = prologue
-		newMsg = append(newMsg, handshakeMessage...)
-		fmt.Printf("prepared server handshake response len %d\n", len(newMsg))
-		count, err := serverConn.Write(msg)
-		if err != nil {
-			panic(err)
-		}
-		if count != len(msg) {
-			panic("count unequal")
-		}
-		fmt.Println("server sent handshake response")
-	}()
-
-	err := session.Initiate(clientConn)
-	if err != nil {
-		panic(err)
-	}
-	packet := []byte{0, 1, 2, 3}
-	err = session.Send(packet)
-	if err != nil {
-		panic(err)
-	}
-	err = session.Close()
-	if err != nil {
-		panic(err)
-	}
 }

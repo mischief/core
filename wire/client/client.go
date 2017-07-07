@@ -18,6 +18,7 @@
 package client
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/flynn/noise"
@@ -48,10 +49,11 @@ type Session struct {
 	options             *Options
 	noiseConfig         noise.Config
 	noiseHandshakeState *noise.HandshakeState
+	conn                io.ReadWriteCloser
 }
 
 // New creates a new session.
-func New(config *Config, options *Options) Session {
+func New(config *Config, options *Options) *Session {
 	session := Session{}
 	if options == nil {
 		session.options = &defaultSessionOptions
@@ -66,24 +68,47 @@ func New(config *Config, options *Options) Session {
 	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
 	session.noiseConfig.StaticKeypair = config.StaticKeypair
 	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(config.Random)
-	return session
+	return &session
 }
 
 // Initiate starts our protocol state machine
 // and returns when the session is finished.
-func (s Session) Initiate(conn io.ReadWriter) error {
-	// XXX todo: send handshake et cetera
+func (s *Session) Initiate(conn io.ReadWriteCloser) error {
+	s.conn = conn
+	handshakeState := noise.NewHandshakeState(s.noiseConfig)
+	msg := make([]byte, 1)
+	hs_msg := make([]byte, 32)
+	hs_msg, _, _ = handshakeState.WriteMessage(msg, nil)
+	msg[0] = s.options.PrologueVersion
+	msg = append(msg, hs_msg...)
+	fmt.Printf("client msg %x\n", msg)
+	count, err := s.conn.Write(msg)
+	if err != nil {
+		panic(err)
+	}
+	if count != len(msg) {
+		panic("count unequal")
+	}
+	log.Debugf("client sent handshake message len %d", count)
+
+	receivedHandshake := make([]byte, 49)
+	_, err = io.ReadFull(conn, receivedHandshake)
+	if err != nil {
+		panic(err)
+	}
+	log.Debug("client read server handshake message")
+
 	return nil
 }
 
 // Send sends a payload using the Session
-func (s Session) Send(payload []byte) error {
-	// XXX fix me
-	return nil
+func (s *Session) Send(payload []byte) error {
+	// XXX todo: enforce payload size?
+	_, err := s.conn.Write(payload)
+	return err
 }
 
 // Close closes the Session
-func (s Session) Close() error {
-	// XXX fix me
-	return nil
+func (s *Session) Close() error {
+	return s.conn.Close()
 }

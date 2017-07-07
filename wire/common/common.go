@@ -37,4 +37,6 @@ type Session interface {
 	// and return when the session is finished,
 	// the Server/Client will subsequently close the connection.
 	Initiate(conn io.ReadWriter) error
+	Close() error
+	Send(payload []byte) error
 }

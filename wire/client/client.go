@@ -18,165 +18,40 @@
 package client
 
 import (
-	"fmt"
 	"io"
-	"net"
-	"time"
 
-	"github.com/Katzenpost/core/wire/common"
 	"github.com/flynn/noise"
 	"github.com/op/go-logging"
 )
 
 var log = logging.MustGetLogger("client")
 
-// Options is used to configure various properties of the wire protocol
-// client connection pool. Default values are used when a nil Options pointer
-// is passed to NewWireClientPool.
-type Options struct {
-	MaxRetries        int
-	RetryDelay        time.Duration
-	ReadWriteDeadline time.Time
-}
-
-var defaultOptions = Options{
-	MaxRetries:        3,
-	RetryDelay:        1 * time.Minute,
-	ReadWriteDeadline: time.Time{},
-}
-
-// Config is used to specify non-optional configuration for the
-// client wire protocol connection pool.
-type Config struct {
-	// XXX todo: store my ed25519 keys and keys of my peers?
-	StaticKeypair noise.DHKey
-	Random        io.Reader
-}
-
-// Client is the struct that keeps state for the wire protocol
-// client pool connections which avoids redundant connections
-type Client struct {
-	options       *Options
-	sessionMap    map[string]common.Session
-	staticKeypair noise.DHKey
-	random        io.Reader
-}
-
-// New creates a new client connection pool which uses
-// the wire protocol.
-func New(options *Options, config *Config) *Client {
-	client := Client{
-		sessionMap: make(map[string]common.Session),
-	}
-	if options == nil {
-		client.options = &defaultOptions
-	} else {
-		client.options = options
-	}
-	client.staticKeypair = config.StaticKeypair
-	return &client
-}
-
-// StopConn is used to stop a particular connection
-func (c *Client) StopConn(network, addr string) {
-	log.Debugf("stopping connection to %s:%s", network, addr)
-	session, ok := c.sessionMap[network+addr]
-	if ok {
-		err := session.Close()
-		if err != nil {
-			log.Debugf("failed to close: %s", err)
-		}
-		delete(c.sessionMap, network+addr)
-	}
-}
-
-func (c *Client) retryDial(network, addr string) (common.Session, error) {
-	var err error
-	var session common.Session
-	attempt := 1
-	for {
-		log.Debugf("dialing attempt %d to %s:%s", attempt, network, addr)
-		session, err = c.dial(network, addr)
-		if err == nil {
-			break
-		}
-		if attempt >= c.options.MaxRetries {
-			return nil, fmt.Errorf("reached connection retry limit for destination %s:%s. Failed with: %s", network, addr, err)
-		}
-		time.Sleep(c.options.RetryDelay)
-		attempt++
-	}
-	return session, err
-}
-
-// dial is used to dial a new connection to the remote host
-func (c *Client) dial(network, addr string) (common.Session, error) {
-	conn, err := net.Dial(network, addr) // use DialTimeout instead?
-	if err != nil {
-		return nil, err
-	}
-	err = conn.SetDeadline(c.options.ReadWriteDeadline)
-	if err != nil {
-		log.Debugf("failed to set deadline: %s", err)
-	}
-	sessionConfig := SessionConfig{
-		StaticKeypair: c.staticKeypair,
-	}
-	sessionOptions := SessionOptions{}
-	session := NewSession(&sessionConfig, c.random, &sessionOptions)
-	err = session.Initiate(conn)
-	if err != nil {
-		log.Errorf("failed to initiate session to %s:%s", network, addr)
-		return nil, err
-	}
-	c.sessionMap[network+addr] = session
-	return session, nil
-}
-
-// Send sends a payload to the given destination specified by
-// network and addr utilizing a retry Dial.
-func (c *Client) Send(network, addr string, payload [common.MaxPayloadSize]byte) error {
-	var err error
-	session, ok := c.sessionMap[network+addr]
-	if !ok {
-		session, err = c.retryDial(network, addr)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-	}
-	err = session.Send(payload[:])
-	if err != nil {
-		log.Errorf("failed to send payload to %s:%s", network, addr)
-	}
-	return err
-}
-
 // SessionOptions is used to configure various properties of the client session
-type SessionOptions struct {
-	prologueVersion byte
+type Options struct {
+	PrologueVersion byte
 }
 
-var defaultSessionOptions = SessionOptions{
-	prologueVersion: byte(0),
+var defaultSessionOptions = Options{
+	PrologueVersion: byte(0),
 }
 
 // SessionConfig is non-optional configuration for a Session
-type SessionConfig struct {
+type Config struct {
 	StaticKeypair noise.DHKey
+	Random        io.Reader
 }
 
 // Session handles the client side of our
 // Noise based wire protocol as specified in the
 // Panoramix Mix Network Wire Protocol Specification
 type Session struct {
-	options             *SessionOptions
+	options             *Options
 	noiseConfig         noise.Config
 	noiseHandshakeState *noise.HandshakeState
 }
 
-// NewSession creates a new session.
-func NewSession(config *SessionConfig, random io.Reader, options *SessionOptions) Session {
+// New creates a new session.
+func New(config *Config, options *Options) Session {
 	session := Session{}
 	if options == nil {
 		session.options = &defaultSessionOptions
@@ -185,12 +60,12 @@ func NewSession(config *SessionConfig, random io.Reader, options *SessionOptions
 	}
 	session.noiseConfig = noise.Config{}
 	session.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	session.noiseConfig.Random = random
+	session.noiseConfig.Random = config.Random
 	session.noiseConfig.Pattern = noise.HandshakeNN
 	session.noiseConfig.Initiator = true
-	session.noiseConfig.Prologue = []byte{session.options.prologueVersion}
+	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
 	session.noiseConfig.StaticKeypair = config.StaticKeypair
-	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(random)
+	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(config.Random)
 	return session
 }
 

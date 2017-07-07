@@ -22,40 +22,33 @@ import (
 	"io"
 	"net"
 	"testing"
-	"time"
 
-	"github.com/Katzenpost/core/wire/common"
 	"github.com/flynn/noise"
 )
 
-func TestClientStopConnEmpty(t *testing.T) {
+func TestSession(t *testing.T) {
 	config := Config{
 		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
 		Random:        rand.Reader,
 	}
-	client := New(nil, &config)
-	client.StopConn("tcp", "127.0.0.1:6669")
-}
-
-func TestClientSendFail(t *testing.T) {
-	options := Options{
-		MaxRetries:        2,
-		RetryDelay:        0,
-		ReadWriteDeadline: time.Time{},
-	}
-	config := Config{
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
-	}
-	client := New(&options, &config)
-	emptyPayload := [common.MaxPayloadSize]byte{}
-
-	serverConn, _ := net.Pipe()
+	session := New(&config, nil)
+	clientConn, serverConn := net.Pipe()
 	go func() {
 		if _, err := io.Copy(serverConn, serverConn); err != nil {
 			fmt.Println(err.Error())
 		}
 	}()
-	err := client.Send("tcp", "127.0.0.1:6669", emptyPayload)
-	fmt.Println(err)
+	err := session.Initiate(clientConn)
+	if err != nil {
+		panic(err)
+	}
+	packet := []byte{0, 1, 2, 3}
+	err = session.Send(packet)
+	if err != nil {
+		panic(err)
+	}
+	err = session.Close()
+	if err != nil {
+		panic(err)
+	}
 }

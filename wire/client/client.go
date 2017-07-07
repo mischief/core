@@ -18,8 +18,10 @@
 package client
 
 import (
+	"fmt"
 	"io"
 
+	"github.com/Katzenpost/core/wire/common"
 	"github.com/flynn/noise"
 	"github.com/op/go-logging"
 )
@@ -73,10 +75,24 @@ func New(config *Config, options *Options) *Session {
 	return &session
 }
 
-// Initiate starts our protocol state machine
-// and returns when the session is finished.
+// Initiate starts our client session state machine
 func (s *Session) Initiate(conn io.ReadWriteCloser) error {
 	s.conn = conn
+	err := s.handshake()
+	if err != nil {
+		panic(err)
+	}
+	err = s.authenticate()
+	if err != nil {
+		panic(err)
+	}
+	return nil
+}
+
+// Handshake performs the noise based handshake exchange
+// with the server
+func (s *Session) handshake() error {
+	log.Debug("client initiates handshake")
 
 	clientHsMsg := make([]byte, 1)
 	hsMsg := make([]byte, 32)
@@ -87,17 +103,17 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) error {
 
 	count, err := s.conn.Write(clientHsMsg)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if count != len(clientHsMsg) {
-		panic("count unequal")
+		return fmt.Errorf("client did not send correct handshake length bytes: %d != %d", count, len(clientHsMsg))
 	}
 	log.Debug("client sent handshake message")
 
 	receivedHsMsg := make([]byte, 49)
-	_, err = io.ReadFull(conn, receivedHsMsg)
+	_, err = io.ReadFull(s.conn, receivedHsMsg)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	log.Debug("client received server handshake message")
 
@@ -105,22 +121,49 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) error {
 	clientHsResult := make([]byte, 0)
 	clientHsResult, s.cipherState0, s.cipherState1, err = s.hsState.ReadMessage(nil, receivedHsMsg[1:])
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if len(clientHsResult) != 0 {
-		panic("client result message is unexpected size")
+		return fmt.Errorf("client decoded incorrect message length: %d != %d", len(clientHsResult), 0)
 	}
-
-	// XXX todo: authentication
-
 	return nil
 }
 
-// Send sends a payload using the Session
-func (s *Session) Send(payload []byte) error {
-	// XXX todo: enforce payload size?
-	_, err := s.conn.Write(payload)
-	return err
+func (s *Session) authenticate() error {
+	// XXX todo, stuff goes here
+	return nil
+}
+
+// Receive receives a payload
+func (s *Session) Receive(payload [common.MaxPayloadSize]byte) error {
+	log.Debug("client Receive")
+	ciphertext := [common.MaxPayloadSize]byte{}
+	_, err := io.ReadFull(s.conn, ciphertext[:])
+	if err != nil {
+		return err
+	}
+	plaintext, err := s.cipherState1.Decrypt(nil, nil, ciphertext[:])
+	if err != nil {
+		return err
+	}
+	// XXX copy is slow. do something different?
+	copy(payload[:], plaintext)
+	return nil
+}
+
+// Send sends a payload
+func (s *Session) Send(payload [common.MaxPayloadSize]byte) error {
+	log.Debug("client Send")
+
+	ciphertext := s.cipherState0.Encrypt(nil, nil, payload[:])
+	count, err := s.conn.Write(ciphertext)
+	if err != nil {
+		return err
+	}
+	if count != len(ciphertext) {
+		return fmt.Errorf("Client Session Send failed to write entire buffer: %d != %d", count, len(ciphertext))
+	}
+	return nil
 }
 
 // Close closes the Session

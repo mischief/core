@@ -1,4 +1,4 @@
-// server.go - Noise based wire protocol server tests.
+// server_test.go - Noise based wire protocol server tests.
 // Copyright (C) 2017  David Anthony Stainton
 //
 // This program is free software: you can redistribute it and/or modify

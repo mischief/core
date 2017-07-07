@@ -1,4 +1,4 @@
-// client_test.go - Noise based wire protocol server tests.
+// client_test.go - Noise based wire protocol client tests.
 // Copyright (C) 2017  David Anthony Stainton
 //
 // This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,50 @@ import (
 	"testing"
 
 	"github.com/flynn/noise"
+	"github.com/stretchr/testify/assert"
 )
+
+func TestPlainStateMachine(t *testing.T) {
+	assert := assert.New(t)
+	config := Config{
+		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:        rand.Reader,
+	}
+	session := New(&config, nil)
+	clientConn, serverConn := net.Pipe()
+
+	go func() {
+		fmt.Println("server start")
+		expected := []byte("client handshake message")
+		msg := make([]byte, len(expected))
+		_, err := io.ReadFull(serverConn, msg)
+		assert.NoError(err, "server failed to read client handshake message")
+
+		fmt.Printf("server received handshake len %d\n", len(msg))
+
+		serverHsMsg := []byte("server handshake message")
+		count, err := serverConn.Write(serverHsMsg)
+		assert.NoError(err, "server failed to send handshake response message")
+		assert.Equal(count, len(serverHsMsg), "server sent incorrect length handshake message")
+
+		fmt.Println("server sent handshake response")
+
+		// cheat and do a time.Sleep here?
+	}()
+
+	err := session.Initiate(clientConn)
+	assert.NoError(err, "client failed to Initiate")
+	fmt.Println("after Initiate")
+
+	packet := []byte{0, 1, 2, 3}
+	err = session.Send(packet)
+	assert.NoError(err, "client failed to Send")
+	fmt.Println("after Send")
+
+	err = session.Close()
+	assert.NoError(err, "client failed to Close")
+	fmt.Println("after Close")
+}
 
 func TestSession(t *testing.T) {
 	config := Config{

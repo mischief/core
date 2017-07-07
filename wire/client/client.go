@@ -18,7 +18,6 @@
 package client
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/flynn/noise"
@@ -75,28 +74,20 @@ func New(config *Config, options *Options) *Session {
 // and returns when the session is finished.
 func (s *Session) Initiate(conn io.ReadWriteCloser) error {
 	s.conn = conn
-	handshakeState := noise.NewHandshakeState(s.noiseConfig)
-	msg := make([]byte, 1)
-	hs_msg := make([]byte, 32)
-	hs_msg, _, _ = handshakeState.WriteMessage(msg, nil)
-	msg[0] = s.options.PrologueVersion
-	msg = append(msg, hs_msg...)
-	fmt.Printf("client msg %x\n", msg)
-	count, err := s.conn.Write(msg)
+	count, err := s.conn.Write([]byte("client handshake message"))
 	if err != nil {
 		panic(err)
 	}
-	if count != len(msg) {
-		panic("count unequal")
-	}
 	log.Debugf("client sent handshake message len %d", count)
 
-	receivedHandshake := make([]byte, 49)
+	// expecting "server handshake message"
+	expected := []byte("server handshake message")
+	receivedHandshake := make([]byte, len(expected))
 	_, err = io.ReadFull(conn, receivedHandshake)
 	if err != nil {
 		panic(err)
 	}
-	log.Debug("client read server handshake message")
+	log.Debug("client received server handshake message")
 
 	return nil
 }

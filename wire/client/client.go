@@ -18,7 +18,7 @@
 package client
 
 import (
-	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -33,154 +33,182 @@ var log = logging.MustGetLogger("client")
 // Options is used to configure various properties of the wire protocol
 // client connection pool. Default values are used when a nil Options pointer
 // is passed to NewWireClientPool.
-// XXX TODO: add timeouts for sending/receiving
 type Options struct {
-	maxRetries      int
-	retryDelay      time.Duration
-	prologueVersion byte
+	MaxRetries        int
+	RetryDelay        time.Duration
+	ReadWriteDeadline time.Time
 }
 
 var defaultOptions = Options{
-	maxRetries:      3,
-	retryDelay:      1 * time.Minute,
-	prologueVersion: byte(0),
+	MaxRetries:        3,
+	RetryDelay:        1 * time.Minute,
+	ReadWriteDeadline: time.Time{},
 }
 
 // Config is used to specify non-optional configuration for the
 // client wire protocol connection pool.
 type Config struct {
-	// XXX todo: store my ed25519 keys and keys of my peers
+	// XXX todo: store my ed25519 keys and keys of my peers?
 	StaticKeypair noise.DHKey
+	Random        io.Reader
 }
 
 // Client is the struct that keeps state for the wire protocol
 // client pool connections which avoids redundant connections
 type Client struct {
-	options      *Options
-	noiseConfig  noise.Config
-	connMap      map[string]net.Conn
-	sendChMap    map[string]chan<- []byte
-	receiveChMap map[string]<-chan []byte
-	stateMap     map[string]*noise.HandshakeState
+	options       *Options
+	sessionMap    map[string]common.Session
+	staticKeypair noise.DHKey
+	random        io.Reader
 }
 
 // New creates a new client connection pool which uses
 // the wire protocol.
-func New(options *Options, config *Config, random io.Reader) *Client {
-	wire := Client{}
-	if options == nil {
-		wire.options = &defaultOptions
-	} else {
-		wire.options = options
+func New(options *Options, config *Config) *Client {
+	client := Client{
+		sessionMap: make(map[string]common.Session),
 	}
-	wire.noiseConfig = noise.Config{}
-	wire.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	wire.noiseConfig.Random = random
-	wire.noiseConfig.Pattern = noise.HandshakeNN
-	wire.noiseConfig.Initiator = true
-	wire.noiseConfig.Prologue = []byte{wire.options.prologueVersion}
-	wire.noiseConfig.StaticKeypair = config.StaticKeypair
-	wire.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(random)
-	return &wire
+	if options == nil {
+		client.options = &defaultOptions
+	} else {
+		client.options = options
+	}
+	client.staticKeypair = config.StaticKeypair
+	return &client
 }
 
 // StopConn is used to stop a particular connection
-func (p *Client) StopConn(network, addr string) {
+func (c *Client) StopConn(network, addr string) {
 	log.Debugf("stopping connection to %s:%s", network, addr)
-	err := p.connMap[network+addr].Close()
-	if err != nil {
-		log.Debugf("failed to close: %s", err)
+	session, ok := c.sessionMap[network+addr]
+	if ok {
+		err := session.Close()
+		if err != nil {
+			log.Debugf("failed to close: %s", err)
+		}
+		delete(c.sessionMap, network+addr)
 	}
-	delete(p.connMap, network+addr)
-	delete(p.sendChMap, network+addr)
-	delete(p.receiveChMap, network+addr)
 }
 
-func (p *Client) retryDial(network, addr string) error {
+func (c *Client) retryDial(network, addr string) (common.Session, error) {
 	var err error
+	var session common.Session
 	attempt := 1
 	for {
-		log.Debugf("dialing attempt %s to %s:%s", attempt, network, addr)
-		err = p.dial(network, addr)
+		log.Debugf("dialing attempt %d to %s:%s", attempt, network, addr)
+		session, err = c.dial(network, addr)
 		if err == nil {
 			break
 		}
-		// XXX print log message containing dial error?
-		if attempt > p.options.maxRetries {
-			return errors.New("exceeded connection retry limit")
+		if attempt >= c.options.MaxRetries {
+			return nil, fmt.Errorf("reached connection retry limit for destination %s:%s. Failed with: %s", network, addr, err)
 		}
-		time.Sleep(p.options.retryDelay)
+		time.Sleep(c.options.RetryDelay)
 		attempt++
 	}
-	return err
-}
-
-func (p *Client) sendLoop(sendCh chan []byte, w io.Writer, network, addr string) {
-	for {
-		payload := <-sendCh
-		_, err := w.Write(payload[:])
-		if err != nil {
-			p.StopConn(network, addr)
-		}
-	}
-}
-
-func (p *Client) receiveLoop(receiveCh chan []byte, r io.Reader, network, addr string) {
-	for {
-		_, ok := p.connMap[network+addr]
-		if !ok {
-			break
-		}
-		payload := make([]byte, common.MaxPayloadSize)
-		_, err := io.ReadFull(r, payload)
-		if err != nil {
-			p.StopConn(network, addr)
-		}
-		receiveCh <- payload
-	}
+	return session, err
 }
 
 // dial is used to dial a new connection to the remote host
-func (p *Client) dial(network, addr string) error {
+func (c *Client) dial(network, addr string) (common.Session, error) {
 	conn, err := net.Dial(network, addr) // use DialTimeout instead?
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	// XXX TODO: send handshake to server
-	//noiseHandshakeState := noise.NewHandshakeState(p.noiseConfig)
-
-	// receive handshake from server
-	/*
-		serverHandshake := make([]byte, ED25519_KEY_SIZE+PROLOGUE_SIZE)
-		_, err = io.ReadFull(conn, clientHandshake)
-		if err != nil {
-			return err
-		}
-	*/
-	// XXX: todo: authenticate
-
-	sendCh := make(chan []byte)
-	receiveCh := make(chan []byte)
-	go p.sendLoop(sendCh, conn, network, addr)
-	go p.receiveLoop(receiveCh, conn, network, addr)
-	p.sendChMap[network+addr] = sendCh
-	p.receiveChMap[network+addr] = receiveCh
-	p.connMap[network+addr] = conn
-
-	return nil
+	err = conn.SetDeadline(c.options.ReadWriteDeadline)
+	if err != nil {
+		log.Debugf("failed to set deadline: %s", err)
+	}
+	sessionConfig := SessionConfig{
+		StaticKeypair: c.staticKeypair,
+	}
+	sessionOptions := SessionOptions{}
+	session := NewSession(&sessionConfig, c.random, &sessionOptions)
+	err = session.Initiate(conn)
+	if err != nil {
+		log.Errorf("failed to initiate session to %s:%s", network, addr)
+		return nil, err
+	}
+	c.sessionMap[network+addr] = session
+	return session, nil
 }
 
 // Send sends a payload to the given destination specified by
 // network and addr utilizing a retry Dial.
-func (p *Client) Send(network, addr string, payload [common.MaxPayloadSize]byte) error {
-	ch, ok := p.sendChMap[network+addr]
+func (c *Client) Send(network, addr string, payload [common.MaxPayloadSize]byte) error {
+	var err error
+	session, ok := c.sessionMap[network+addr]
 	if !ok {
-		err := p.retryDial(network, addr)
+		session, err = c.retryDial(network, addr)
 		if err != nil {
+			log.Error(err)
 			return err
 		}
 	}
-	ch <- payload[:]
+	err = session.Send(payload[:])
+	if err != nil {
+		log.Errorf("failed to send payload to %s:%s", network, addr)
+	}
+	return err
+}
+
+// SessionOptions is used to configure various properties of the client session
+type SessionOptions struct {
+	prologueVersion byte
+}
+
+var defaultSessionOptions = SessionOptions{
+	prologueVersion: byte(0),
+}
+
+// SessionConfig is non-optional configuration for a Session
+type SessionConfig struct {
+	StaticKeypair noise.DHKey
+}
+
+// Session handles the client side of our
+// Noise based wire protocol as specified in the
+// Panoramix Mix Network Wire Protocol Specification
+type Session struct {
+	options             *SessionOptions
+	noiseConfig         noise.Config
+	noiseHandshakeState *noise.HandshakeState
+}
+
+// NewSession creates a new session.
+func NewSession(config *SessionConfig, random io.Reader, options *SessionOptions) Session {
+	session := Session{}
+	if options == nil {
+		session.options = &defaultSessionOptions
+	} else {
+		session.options = options
+	}
+	session.noiseConfig = noise.Config{}
+	session.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	session.noiseConfig.Random = random
+	session.noiseConfig.Pattern = noise.HandshakeNN
+	session.noiseConfig.Initiator = true
+	session.noiseConfig.Prologue = []byte{session.options.prologueVersion}
+	session.noiseConfig.StaticKeypair = config.StaticKeypair
+	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(random)
+	return session
+}
+
+// Initiate starts our protocol state machine
+// and returns when the session is finished.
+func (s Session) Initiate(conn io.ReadWriter) error {
+	// XXX todo: send handshake et cetera
+	return nil
+}
+
+// Send sends a payload using the Session
+func (s Session) Send(payload []byte) error {
+	// XXX fix me
+	return nil
+}
+
+// Close closes the Session
+func (s Session) Close() error {
+	// XXX fix me
 	return nil
 }

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// XXX yawning, I need your utils.CtIsZero function for this section
 package common
 
 import (
@@ -116,6 +117,82 @@ func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
 		ciphertext: out,
 	}
 	return &ciphertext, nil
+}
+
+// MessageCommand is the common interface exposed by all message
+// command structures.
+type MessageCommand interface {
+	ToMessage() *Message
+}
+
+type noOpCommand struct{}
+
+func (c noOpCommand) ToMessage() *Message {
+	m := Message{
+		command:  noOp,
+		reserved: byte(0),
+		length:   uint16(0),
+		message:  []byte{},
+		padding:  make([]byte, MessageSize),
+	}
+	return &m
+}
+
+type disconnectCommand struct{}
+
+func (c disconnectCommand) ToMessage() *Message {
+	m := Message{
+		command:  disconnect,
+		reserved: byte(0),
+		length:   uint16(0),
+		message:  []byte{},
+		padding:  make([]byte, MessageSize),
+	}
+	return &m
+}
+
+type authenticateCommand struct {
+	publicKey      [32]byte
+	signature      [64]byte
+	additionalData []byte
+	unixTime       uint32
+}
+
+func (c authenticateCommand) ToMessage() *Message {
+
+	message := Message{
+		command:  authenticate,
+		reserved: byte(0),
+		length:   uint16(100 + len(c.additionalData)),
+		message:  []byte{},
+		padding:  make([]byte, MessageSize),
+	}
+	return &message
+}
+
+func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
+	switch m.command {
+	case noOp:
+		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
+			cmd = nil
+			err = errors.New("invalid noOp command")
+		}
+		cmd = &noOpCommand{}
+		err = nil
+	case disconnect:
+		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
+			cmd = nil
+			err = errors.New("invalid disconnect command")
+		}
+		cmd = &disconnectCommand{}
+		err = nil
+	case authenticate:
+
+		return
+	case sendPacket:
+		return
+	}
+	return
 }
 
 type Ciphertext struct {

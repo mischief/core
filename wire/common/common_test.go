@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestToBytesFromBytes(t *testing.T) {
+func TestToBytesMessageFromBytes(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}
@@ -36,8 +36,8 @@ func TestToBytesFromBytes(t *testing.T) {
 	}
 	raw1, err := message1.ToBytes()
 	assert.NoError(err, "ToBytes failed")
-	message2, err := FromBytes(raw1)
-	assert.NoError(err, "FromBytes failed")
+	message2, err := MessageFromBytes(raw1)
+	assert.NoError(err, "MessageFromBytes failed")
 	assert.Equal(message1.message, message2.message, "message not equal")
 	raw2, err := message2.ToBytes()
 	assert.NoError(err, "ToBytes failed")
@@ -59,7 +59,7 @@ func TestToBytesIncorrectLength(t *testing.T) {
 	assert.Error(err, "ToBytes should have failed")
 }
 
-func TestFromBytesIncorrectLength(t *testing.T) {
+func TestMessageFromBytesIncorrectLength(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}
@@ -72,11 +72,11 @@ func TestFromBytesIncorrectLength(t *testing.T) {
 	}
 	raw1, err := message1.ToBytes()
 	binary.LittleEndian.PutUint16(raw1[2:4], MaxPayloadSize+1)
-	_, err = FromBytes(raw1)
-	assert.Error(err, "FromBytes should have failed")
+	_, err = MessageFromBytes(raw1)
+	assert.Error(err, "MessageFromBytes should have failed")
 }
 
-func TestFromBytesIncorrectReserved(t *testing.T) {
+func TestMessageFromBytesIncorrectReserved(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}
@@ -90,8 +90,8 @@ func TestFromBytesIncorrectReserved(t *testing.T) {
 	raw1, err := message1.ToBytes()
 	assert.NoError(err, "ToBytes failed")
 	raw1[1] = 1
-	message2, err := FromBytes(raw1)
-	assert.Error(err, "FromBytes should have failed")
+	message2, err := MessageFromBytes(raw1)
+	assert.Error(err, "MessageFromBytes should have failed")
 	assert.Nil(message2, nil, "message should be nil")
 }
 

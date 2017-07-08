@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/Katzenpost/core/utils"
 	"github.com/Katzenpost/noise"
 )
 
@@ -87,11 +88,17 @@ func MessageFromBytes(raw [MessageSize]byte) (*Message, error) {
 	}
 	message.message = raw[4 : 4+message.length]
 	message.padding = raw[4+message.length:]
+	if utils.CtIsZero(message.padding) == false {
+		return nil, errors.New("Message's padding must be all 0x00 bytes")
+	}
 	return &message, nil
 }
 
 func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	out := [MessageSize]byte{}
+	if utils.CtIsZero(m.padding) == false {
+		return out, errors.New("Message's padding must be all 0x00 bytes")
+	}
 	if m.reserved != byte(0) {
 		return out, errors.New("reserved not set to 0x00")
 	}
@@ -171,7 +178,7 @@ func (c authenticateCommand) ToMessage() *Message {
 		reserved: byte(0),
 		length:   24,
 		message:  []byte{},
-		padding:  make([]byte, MessageSize),
+		padding:  make([]byte, MessageSize-24),
 	}
 	return &message
 }

@@ -17,12 +17,16 @@
 package common
 
 import (
+	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 )
 
 const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
+	MessageSize    = MaxPayloadSize + 4
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
 	// Ed25519KeySize is the size of an ed25519 key
@@ -39,4 +43,56 @@ type Session interface {
 	Initiate(conn io.ReadWriter) error
 	Close() error
 	Send(payload []byte) error
+}
+
+// Wire Protocol Commands
+type commandID byte
+
+const (
+	noOp         commandID = 0x00
+	disconnect   commandID = 0x01
+	authenticate commandID = 0x02
+	sendPacket   commandID = 0x03
+)
+
+// Message is a protocol message
+type Message struct {
+	command  commandID
+	reserved byte
+	length   uint16
+	message  []byte
+	padding  []byte
+}
+
+func (m *Message) ToBytes() ([MessageSize]byte, error) {
+	out := [MessageSize]byte{}
+	if m.reserved != byte(0) {
+		return out, errors.New("reserved not set to 0x00")
+	}
+	if int(m.length) != len(m.message) || int(m.length) > MaxPayloadSize {
+		return out, fmt.Errorf("incorrect length %d %d", int(m.length), len(m.message))
+	}
+	out[0] = byte(m.command)
+	out[1] = m.reserved
+	binary.LittleEndian.PutUint16(out[2:4], m.length)
+	copy(out[4:4+m.length], m.message)
+	copy(out[4+m.length:], m.padding)
+	return out, nil
+}
+
+func FromBytes(raw [MessageSize]byte) (*Message, error) {
+	message := Message{}
+	message.command = commandID(raw[0])
+	message.reserved = raw[1]
+	if message.reserved != byte(0) {
+		return nil, errors.New("Message's reserved must be set to 0x00")
+	}
+	message.length = binary.LittleEndian.Uint16(raw[2:4])
+	if message.length > MaxPayloadSize {
+		return nil, fmt.Errorf("Message's length field %d exceeds MaxPayloadSize of %d",
+			message.length, MaxPayloadSize)
+	}
+	message.message = raw[4 : 4+message.length]
+	message.padding = raw[4+message.length:]
+	return &message, nil
 }

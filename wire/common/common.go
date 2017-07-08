@@ -131,6 +131,49 @@ func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
 	return &ciphertext, nil
 }
 
+// Ciphertext represents an encrypted message
+type Ciphertext struct {
+	length     uint16
+	ciphertext []byte
+}
+
+// CiphertextFromBytes converts bytes to Ciphertext struct
+func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
+	c := Ciphertext{}
+	c.length = binary.LittleEndian.Uint16(raw[0:2])
+	c.ciphertext = raw[2:]
+	if int(c.length) != len(c.ciphertext) {
+		return nil, fmt.Errorf("%d is incorrect Ciphertext length", c.length)
+	}
+	return &c, nil
+}
+
+// Decrypt decrypts Ciphertext into a Message
+func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
+	var plaintext [MessageSize]byte
+	var out []byte
+	var err error
+	out, err = cs.Decrypt(out, nil, c.ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	copy(plaintext[:], out)
+	message, err := MessageFromBytes(plaintext)
+	cs.Rekey()
+	return message, err
+}
+
+// ToBytes converts a Ciphertext struct into a byte slice
+func (c *Ciphertext) ToBytes() ([]byte, error) {
+	if int(c.length) != len(c.ciphertext) {
+		return nil, fmt.Errorf("%d is incorrenct Ciphertext length", c.length)
+	}
+	out := make([]byte, int(c.length)+2)
+	binary.LittleEndian.PutUint16(out, c.length)
+	copy(out[2:], c.ciphertext)
+	return out, nil
+}
+
 // MessageCommand is the common interface exposed by all message
 // command structures.
 type MessageCommand interface {
@@ -237,47 +280,4 @@ func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 		err = errInvalidCommand
 	}
 	return
-}
-
-// Ciphertext represents an encrypted message
-type Ciphertext struct {
-	length     uint16
-	ciphertext []byte
-}
-
-// CiphertextFromBytes converts bytes to Ciphertext struct
-func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
-	c := Ciphertext{}
-	c.length = binary.LittleEndian.Uint16(raw[0:2])
-	c.ciphertext = raw[2:]
-	if int(c.length) != len(c.ciphertext) {
-		return nil, fmt.Errorf("%d is incorrect Ciphertext length", c.length)
-	}
-	return &c, nil
-}
-
-// Decrypt decrypts Ciphertext into a Message
-func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
-	var plaintext [MessageSize]byte
-	var out []byte
-	var err error
-	out, err = cs.Decrypt(out, nil, c.ciphertext)
-	if err != nil {
-		return nil, err
-	}
-	copy(plaintext[:], out)
-	message, err := MessageFromBytes(plaintext)
-	cs.Rekey()
-	return message, err
-}
-
-// ToBytes converts a Ciphertext struct into a byte slice
-func (c *Ciphertext) ToBytes() ([]byte, error) {
-	if int(c.length) != len(c.ciphertext) {
-		return nil, fmt.Errorf("%d is incorrenct Ciphertext length", c.length)
-	}
-	out := make([]byte, int(c.length)+2)
-	binary.LittleEndian.PutUint16(out, c.length)
-	copy(out[2:], c.ciphertext)
-	return out, nil
 }

@@ -21,12 +21,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/Katzenpost/noise"
 )
 
 const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
-	MessageSize    = MaxPayloadSize + 4
+	// MessageSize is the size of a Message
+	MessageSize = MaxPayloadSize + 4
+	// MessageCiphertextSize is the size of the encrypted Message
+	MessageCiphertextSize = MessageSize + 16
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
 	// Ed25519KeySize is the size of an ed25519 key
@@ -80,6 +85,21 @@ func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	return out, nil
 }
 
+func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
+	raw, err := m.ToBytes()
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	out = cs.Encrypt(out, nil, raw[:])
+	cs.Rekey()
+	ciphertext := Ciphertext{
+		length:     uint16(len(out)),
+		ciphertext: out,
+	}
+	return &ciphertext, nil
+}
+
 func FromBytes(raw [MessageSize]byte) (*Message, error) {
 	message := Message{}
 	message.command = commandID(raw[0])
@@ -95,4 +115,30 @@ func FromBytes(raw [MessageSize]byte) (*Message, error) {
 	message.message = raw[4 : 4+message.length]
 	message.padding = raw[4+message.length:]
 	return &message, nil
+}
+
+type Ciphertext struct {
+	length     uint16
+	ciphertext []byte
+}
+
+func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
+	var plaintext [MessageSize]byte
+	var out []byte
+	var err error
+	out, err = cs.Decrypt(out, nil, c.ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	copy(plaintext[:], out)
+	message, err := FromBytes(plaintext)
+	cs.Rekey()
+	return message, err
+}
+
+func (c *Ciphertext) ToBytes() ([]byte, error) {
+	out := make([]byte, c.length+2)
+	binary.LittleEndian.PutUint16(out[:2], c.length)
+	copy(out[2:], c.ciphertext)
+	return out, nil
 }

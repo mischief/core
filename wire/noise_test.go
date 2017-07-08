@@ -66,25 +66,30 @@ func TestNoiseParams(t *testing.T) {
 	clientMessage := []byte("hello")
 	msg := csI0.Encrypt(nil, nil, clientMessage)
 	res, err := csR0.Decrypt(nil, nil, msg)
+	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(clientMessage, res, "server received unexpected message")
 
 	serverMessage := []byte("bye")
 	msg = csR1.Encrypt(nil, nil, serverMessage)
 	res, err = csI1.Decrypt(nil, nil, msg)
+	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(serverMessage, res, "client received unexpected message")
 
 	serverMessage = []byte("bye bye")
 	msg = csR1.Encrypt(nil, nil, serverMessage)
 	res, err = csI1.Decrypt(nil, nil, msg)
+	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(serverMessage, res, "client received unexpected message")
 
 	clientMessage = []byte("hello again")
 	msg = csI0.Encrypt(nil, nil, clientMessage)
 	res, err = csR0.Decrypt(nil, nil, msg)
+	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(clientMessage, res, "server received unexpected message")
 
 	serverMessage = []byte("bye again")
 	msg = csR1.Encrypt(nil, nil, serverMessage)
 	res, err = csI1.Decrypt(nil, nil, msg)
+	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(serverMessage, res, "client received unexpected message")
 }

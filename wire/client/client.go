@@ -28,7 +28,7 @@ import (
 
 var log = logging.MustGetLogger("client")
 
-// SessionOptions is used to configure various properties of the client session
+// Options is used to configure various properties of the client session
 type Options struct {
 	PrologueVersion byte
 }
@@ -37,7 +37,7 @@ var defaultSessionOptions = Options{
 	PrologueVersion: byte(0),
 }
 
-// SessionConfig is non-optional configuration for a Session
+// Config is non-optional configuration for a Session
 type Config struct {
 	StaticKeypair noise.DHKey
 	Random        io.Reader
@@ -95,8 +95,7 @@ func (s *Session) handshake() error {
 	log.Debug("client initiates handshake")
 
 	clientHsMsg := make([]byte, 1)
-	hsMsg := make([]byte, 32)
-	hsMsg, _, _ = s.hsState.WriteMessage(nil, nil)
+	hsMsg, _, _ := s.hsState.WriteMessage(nil, nil)
 
 	clientHsMsg[0] = s.options.PrologueVersion
 	clientHsMsg = append(clientHsMsg, hsMsg...)
@@ -137,7 +136,7 @@ func (s *Session) authenticate() error {
 // Receive receives a message
 func (s *Session) Receive() (*common.Message, error) {
 	log.Debug("client Receive")
-	ciphertext := [common.MessageCiphertextSize]byte{}
+	ciphertext := [common.MessageCiphertextMaxSize]byte{}
 	_, err := io.ReadFull(s.conn, ciphertext[:])
 	if err != nil {
 		return nil, err
@@ -148,7 +147,7 @@ func (s *Session) Receive() (*common.Message, error) {
 	}
 	packet := [common.MessageSize]byte{}
 	copy(packet[:], rawMessage)
-	message, err := common.FromBytes(packet)
+	message, err := common.MessageFromBytes(packet)
 	return message, err
 }
 
@@ -156,10 +155,6 @@ func (s *Session) Receive() (*common.Message, error) {
 func (s *Session) Send(message *common.Message) error {
 	log.Debug("client Send")
 
-	rawMessage, err := message.ToBytes()
-	if err != nil {
-		return err
-	}
 	ciphertext, err := message.Encrypt(s.cipherState0)
 	if err != nil {
 		return err
@@ -172,8 +167,8 @@ func (s *Session) Send(message *common.Message) error {
 	if err != nil {
 		return err
 	}
-	if count != len(ciphertext) {
-		return fmt.Errorf("Client Session Send failed to write entire buffer: %d != %d", count, len(ciphertext))
+	if count != len(rawCiphertext) {
+		return fmt.Errorf("Client Session Send failed to write entire buffer: %d != %d", count, len(rawCiphertext))
 	}
 	return nil
 }

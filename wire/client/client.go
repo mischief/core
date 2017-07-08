@@ -22,7 +22,7 @@ import (
 	"io"
 
 	"github.com/Katzenpost/core/wire/common"
-	"github.com/flynn/noise"
+	"github.com/Katzenpost/noise"
 	"github.com/op/go-logging"
 )
 
@@ -118,7 +118,7 @@ func (s *Session) handshake() error {
 	log.Debug("client received server handshake message")
 
 	// decode hs message from server
-	clientHsResult := make([]byte, 0)
+	var clientHsResult []byte
 	clientHsResult, s.cipherState0, s.cipherState1, err = s.hsState.ReadMessage(nil, receivedHsMsg[1:])
 	if err != nil {
 		return err
@@ -134,29 +134,41 @@ func (s *Session) authenticate() error {
 	return nil
 }
 
-// Receive receives a payload
-func (s *Session) Receive(payload [common.MaxPayloadSize]byte) error {
+// Receive receives a message
+func (s *Session) Receive() (*common.Message, error) {
 	log.Debug("client Receive")
-	ciphertext := [common.MaxPayloadSize]byte{}
+	ciphertext := [common.MessageCiphertextSize]byte{}
 	_, err := io.ReadFull(s.conn, ciphertext[:])
 	if err != nil {
-		return err
+		return nil, err
 	}
-	plaintext, err := s.cipherState1.Decrypt(nil, nil, ciphertext[:])
+	rawMessage, err := s.cipherState1.Decrypt(nil, nil, ciphertext[:])
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// XXX copy is slow. do something different?
-	copy(payload[:], plaintext)
-	return nil
+	packet := [common.MessageSize]byte{}
+	copy(packet[:], rawMessage)
+	message, err := common.FromBytes(packet)
+	return message, err
 }
 
 // Send sends a payload
-func (s *Session) Send(payload [common.MaxPayloadSize]byte) error {
+func (s *Session) Send(message *common.Message) error {
 	log.Debug("client Send")
 
-	ciphertext := s.cipherState0.Encrypt(nil, nil, payload[:])
-	count, err := s.conn.Write(ciphertext)
+	rawMessage, err := message.ToBytes()
+	if err != nil {
+		return err
+	}
+	ciphertext, err := message.Encrypt(s.cipherState0)
+	if err != nil {
+		return err
+	}
+	rawCiphertext, err := ciphertext.ToBytes()
+	if err != nil {
+		return err
+	}
+	count, err := s.conn.Write(rawCiphertext)
 	if err != nil {
 		return err
 	}

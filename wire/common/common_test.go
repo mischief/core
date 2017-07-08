@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestToBytesMessageFromBytes(t *testing.T) {
+func TestMessageToBytesMessageFromBytes(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}
@@ -44,7 +44,7 @@ func TestToBytesMessageFromBytes(t *testing.T) {
 	assert.Equal(raw1, raw2, "byte slices not equal")
 }
 
-func TestToBytesIncorrectLength(t *testing.T) {
+func TestMessageToBytesIncorrectLength(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}
@@ -95,7 +95,7 @@ func TestMessageFromBytesIncorrectReserved(t *testing.T) {
 	assert.Nil(message2, nil, "message should be nil")
 }
 
-func TestToBytesIncorrectReserved(t *testing.T) {
+func TestMessageToBytesIncorrectReserved(t *testing.T) {
 	assert := assert.New(t)
 
 	padding := [MaxPayloadSize - 5]byte{}

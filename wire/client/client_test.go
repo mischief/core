@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/Katzenpost/core/wire/common"
-	"github.com/flynn/noise"
+	"github.com/Katzenpost/noise"
 	"github.com/stretchr/testify/assert"
 )
 

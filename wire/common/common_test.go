@@ -71,6 +71,7 @@ func TestMessageFromBytesIncorrectLength(t *testing.T) {
 		padding:  padding[:],
 	}
 	raw1, err := message1.ToBytes()
+	assert.NoError(err, "ToBytes should not have failed")
 	binary.LittleEndian.PutUint16(raw1[2:4], MaxPayloadSize+1)
 	_, err = MessageFromBytes(raw1)
 	assert.Error(err, "MessageFromBytes should have failed")

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// XXX yawning, I need your utils.CtIsZero function for this section
 package common
 
 import (
@@ -74,6 +73,8 @@ type Message struct {
 	padding  []byte
 }
 
+// MessageFromBytes is used to get a Message struct
+// given a slice of bytes
 func MessageFromBytes(raw [MessageSize]byte) (*Message, error) {
 	message := Message{}
 	message.command = commandID(raw[0])
@@ -88,15 +89,16 @@ func MessageFromBytes(raw [MessageSize]byte) (*Message, error) {
 	}
 	message.message = raw[4 : 4+message.length]
 	message.padding = raw[4+message.length:]
-	if utils.CtIsZero(message.padding) == false {
+	if !utils.CtIsZero(message.padding) {
 		return nil, errors.New("Message's padding must be all 0x00 bytes")
 	}
 	return &message, nil
 }
 
+// ToBytes converts a Message into a byte array
 func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	out := [MessageSize]byte{}
-	if utils.CtIsZero(m.padding) == false {
+	if !utils.CtIsZero(m.padding) {
 		return out, errors.New("Message's padding must be all 0x00 bytes")
 	}
 	if m.reserved != byte(0) {
@@ -113,6 +115,7 @@ func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	return out, nil
 }
 
+// Encrypt encrypts a Message returning a Ciphertext
 func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
 	raw, err := m.ToBytes()
 	if err != nil {
@@ -198,6 +201,7 @@ func (c sendPacketCommand) ToMessage() *Message {
 	return &m
 }
 
+// CommandFromMessage converts a Message into a Command
 func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 	switch m.command {
 	case noOp:
@@ -235,11 +239,13 @@ func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 	return
 }
 
+// Ciphertext represents an encrypted message
 type Ciphertext struct {
 	length     uint16
 	ciphertext []byte
 }
 
+// CiphertextFromBytes converts bytes to Ciphertext struct
 func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
 	c := Ciphertext{}
 	c.length = binary.LittleEndian.Uint16(raw[0:2])
@@ -250,6 +256,7 @@ func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
 	return &c, nil
 }
 
+// Decrypt decrypts Ciphertext into a Message
 func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
 	var plaintext [MessageSize]byte
 	var out []byte
@@ -264,6 +271,7 @@ func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
 	return message, err
 }
 
+// ToBytes converts a Ciphertext struct into a byte slice
 func (c *Ciphertext) ToBytes() ([]byte, error) {
 	if int(c.length) != len(c.ciphertext) {
 		return nil, fmt.Errorf("%d is incorrenct Ciphertext length", c.length)

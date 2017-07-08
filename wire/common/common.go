@@ -30,8 +30,9 @@ const (
 	MaxPayloadSize = 65515
 	// MessageSize is the size of a Message
 	MessageSize = MaxPayloadSize + 4
-	// MessageCiphertextSize is the size of the encrypted Message
-	MessageCiphertextSize = MessageSize + 16
+	// MessageCiphertextMaxSize is the size of the encrypted Message
+	// that is the "ciphertext" element of the Ciphertext struct
+	MessageCiphertextMaxSize = MessageSize + 16
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
 	// Ed25519KeySize is the size of an ed25519 key
@@ -125,11 +126,10 @@ type Ciphertext struct {
 func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
 	c := Ciphertext{}
 	c.length = binary.LittleEndian.Uint16(raw[0:2])
-	if c.length > MessageCiphertextSize {
-		return nil, fmt.Errorf("%d exceeds max Ciphertext length of %d",
-			c.length, MessageCiphertextSize)
-	}
 	c.ciphertext = raw[2:]
+	if int(c.length) != len(c.ciphertext) {
+		return nil, fmt.Errorf("%d is incorrect Ciphertext length", c.length)
+	}
 	return &c, nil
 }
 
@@ -148,8 +148,11 @@ func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
 }
 
 func (c *Ciphertext) ToBytes() ([]byte, error) {
-	out := make([]byte, c.length+2)
-	binary.LittleEndian.PutUint16(out[:2], c.length)
+	if int(c.length) != len(c.ciphertext) {
+		return nil, fmt.Errorf("%d is incorrenct Ciphertext length", c.length)
+	}
+	out := make([]byte, int(c.length)+2)
+	binary.LittleEndian.PutUint16(out, c.length)
 	copy(out[2:], c.ciphertext)
 	return out, nil
 }

@@ -109,3 +109,56 @@ func TestToBytesIncorrectReserved(t *testing.T) {
 	_, err := message1.ToBytes()
 	assert.Error(err, "ToBytes should have failed")
 }
+
+func TestCiphertextToBytesCiphertextFromBytes(t *testing.T) {
+	assert := assert.New(t)
+
+	c1 := Ciphertext{
+		length:     5,
+		ciphertext: []byte("hello"),
+	}
+	b1, err := c1.ToBytes()
+	assert.NoError(err, "ToBytes should not have errored")
+	c2, err := CiphertextFromBytes(b1)
+	assert.NoError(err, "CiphertextFromBytes should not have errored")
+	b2, err := c2.ToBytes()
+	assert.NoError(err, "ToBytes should not have errored")
+	assert.Equal(b1, b2, "should be equal")
+}
+
+func TestCiphertextToBytes(t *testing.T) {
+	assert := assert.New(t)
+
+	c := Ciphertext{
+		length:     4,
+		ciphertext: []byte("hello"),
+	}
+	_, err := c.ToBytes()
+	assert.Error(err, "ToBytes should not have errored")
+	c = Ciphertext{
+		length:     MessageCiphertextMaxSize,
+		ciphertext: []byte("hello"),
+	}
+	_, err = c.ToBytes()
+	assert.Error(err, "ToBytes should not have errored")
+	c = Ciphertext{
+		length:     MessageCiphertextMaxSize,
+		ciphertext: make([]byte, MessageCiphertextMaxSize),
+	}
+	_, err = c.ToBytes()
+	assert.NoError(err, "ToBytes should have errored")
+}
+
+func TestCiphertextFromBytes(t *testing.T) {
+	assert := assert.New(t)
+
+	c := Ciphertext{
+		length:     5,
+		ciphertext: []byte("hello"),
+	}
+	b, err := c.ToBytes()
+	assert.NoError(err, "ToBytes should not have errored")
+	binary.LittleEndian.PutUint16(b, 3)
+	_, err = CiphertextFromBytes(b)
+	assert.Error(err, "ToBytes should have errored")
+}

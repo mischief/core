@@ -281,3 +281,33 @@ func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 	}
 	return
 }
+
+// CommandFromCiphertextBytes converts ciphertext bytes to
+// MessageCommand structures by first converting to a Ciphertext struct
+// and then decrypting to a Message structure and finally converting
+// to a MessageCommand structure
+func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cmd MessageCommand, err error) {
+	ciphertext, err := CiphertextFromBytes(rawCiphertext)
+	if err != nil {
+		return cmd, err
+	}
+	message, err := ciphertext.Decrypt(cs)
+	if err != nil {
+		return cmd, err
+	}
+	cmd, err = CommandFromMessage(message)
+	return cmd, err
+}
+
+// CommandToCiphertextBytes converts MessageCommand structures to
+// ciphertext bytes by first converting to a Message struct and then
+// encrypting to a Ciphertext struct
+func CommandToCiphertextBytes(cs *noise.CipherState, cmd MessageCommand) ([]byte, error) {
+	message := cmd.ToMessage()
+	ciphertext, err := message.Encrypt(cs)
+	if err != nil {
+		return nil, err
+	}
+	rawCiphertext, err := ciphertext.ToBytes()
+	return rawCiphertext, err
+}

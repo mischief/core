@@ -154,20 +154,39 @@ func (c disconnectCommand) ToMessage() *Message {
 type authenticateCommand struct {
 	publicKey      [32]byte
 	signature      [64]byte
-	additionalData []byte
+	additionalData [64]byte
 	unixTime       uint32
 }
 
 func (c authenticateCommand) ToMessage() *Message {
-
+	m := make([]byte, 24)
+	copy(m[0:], c.publicKey[:])
+	copy(m[4:], c.signature[:])
+	copy(m[13:], c.additionalData[:])
+	binary.LittleEndian.PutUint32(m[22:], c.unixTime)
 	message := Message{
 		command:  authenticate,
 		reserved: byte(0),
-		length:   uint16(100 + len(c.additionalData)),
+		length:   24,
 		message:  []byte{},
 		padding:  make([]byte, MessageSize),
 	}
 	return &message
+}
+
+type sendPacketCommand struct {
+	sphinxPacket [SphinxPacketSize]byte
+}
+
+func (c sendPacketCommand) ToMessage() *Message {
+	m := Message{
+		command:  sendPacket,
+		reserved: byte(0),
+		length:   uint16(SphinxPacketSize),
+		message:  c.sphinxPacket[:],
+		padding:  make([]byte, MessageSize-SphinxPacketSize),
+	}
+	return &m
 }
 
 func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {

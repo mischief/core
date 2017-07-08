@@ -69,6 +69,23 @@ type Message struct {
 	padding  []byte
 }
 
+func MessageFromBytes(raw [MessageSize]byte) (*Message, error) {
+	message := Message{}
+	message.command = commandID(raw[0])
+	message.reserved = raw[1]
+	if message.reserved != byte(0) {
+		return nil, errors.New("Message's reserved must be set to 0x00")
+	}
+	message.length = binary.LittleEndian.Uint16(raw[2:4])
+	if message.length > MaxPayloadSize {
+		return nil, fmt.Errorf("Message's length field %d exceeds MaxPayloadSize of %d",
+			message.length, MaxPayloadSize)
+	}
+	message.message = raw[4 : 4+message.length]
+	message.padding = raw[4+message.length:]
+	return &message, nil
+}
+
 func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	out := [MessageSize]byte{}
 	if m.reserved != byte(0) {
@@ -100,26 +117,20 @@ func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
 	return &ciphertext, nil
 }
 
-func FromBytes(raw [MessageSize]byte) (*Message, error) {
-	message := Message{}
-	message.command = commandID(raw[0])
-	message.reserved = raw[1]
-	if message.reserved != byte(0) {
-		return nil, errors.New("Message's reserved must be set to 0x00")
-	}
-	message.length = binary.LittleEndian.Uint16(raw[2:4])
-	if message.length > MaxPayloadSize {
-		return nil, fmt.Errorf("Message's length field %d exceeds MaxPayloadSize of %d",
-			message.length, MaxPayloadSize)
-	}
-	message.message = raw[4 : 4+message.length]
-	message.padding = raw[4+message.length:]
-	return &message, nil
-}
-
 type Ciphertext struct {
 	length     uint16
 	ciphertext []byte
+}
+
+func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
+	c := Ciphertext{}
+	c.length = binary.LittleEndian.Uint16(raw[0:2])
+	if c.length > MessageCiphertextSize {
+		return nil, fmt.Errorf("%d exceeds max Ciphertext length of %d",
+			c.length, MessageCiphertextSize)
+	}
+	c.ciphertext = raw[2:]
+	return &c, nil
 }
 
 func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
@@ -131,7 +142,7 @@ func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
 		return nil, err
 	}
 	copy(plaintext[:], out)
-	message, err := FromBytes(plaintext)
+	message, err := MessageFromBytes(plaintext)
 	cs.Rekey()
 	return message, err
 }

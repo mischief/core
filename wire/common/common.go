@@ -62,6 +62,8 @@ const (
 	sendPacket   commandID = 0x03
 )
 
+var errInvalidCommand = errors.New("invalid wire protocol command")
+
 // Message is a protocol message
 type Message struct {
 	command  commandID
@@ -195,21 +197,33 @@ func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
 			cmd = nil
 			err = errors.New("invalid noOp command")
+		} else {
+			cmd = &noOpCommand{}
 		}
-		cmd = &noOpCommand{}
-		err = nil
 	case disconnect:
 		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
 			cmd = nil
 			err = errors.New("invalid disconnect command")
+		} else {
+			cmd = &disconnectCommand{}
 		}
-		cmd = &disconnectCommand{}
-		err = nil
 	case authenticate:
-
-		return
+		auth := authenticateCommand{}
+		copy(auth.publicKey[:], m.message[0:4])
+		copy(auth.signature[:], m.message[4:12])
+		copy(auth.additionalData[:], m.message[12:20])
+		auth.unixTime = binary.LittleEndian.Uint32(m.message[20:])
+		cmd = &auth
 	case sendPacket:
-		return
+		if len(m.message) != SphinxPacketSize {
+			err = errors.New("invalid Sphinx command")
+		} else {
+			s := sendPacketCommand{}
+			copy(s.sphinxPacket[:], m.message)
+			cmd = &s
+		}
+	default:
+		err = errInvalidCommand
 	}
 	return
 }

@@ -17,8 +17,10 @@
 package common
 
 import (
+	"crypto/rand"
 	"testing"
 
+	"github.com/Katzenpost/noise"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -68,4 +70,63 @@ func TestCommandSendPacket(t *testing.T) {
 	assert.NoError(err, "fromBytes unexpectedly failed")
 	raw2 := cmd2.toBytes()
 	assert.Equal(raw1, raw2, "serialized commands not equal")
+}
+
+func TestEncryptDecrypt(t *testing.T) {
+	assert := assert.New(t)
+
+	clientStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
+	clientConfig := noise.Config{}
+	clientConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	clientConfig.Random = rand.Reader
+	clientConfig.Pattern = noise.HandshakeNN
+	clientConfig.Initiator = true
+	clientConfig.Prologue = []byte{0}
+	clientConfig.StaticKeypair = clientStaticKeypair
+	clientConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
+	clientHs := noise.NewHandshakeState(clientConfig)
+
+	serverStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
+	serverConfig := noise.Config{}
+	serverConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	serverConfig.Random = rand.Reader
+	serverConfig.Pattern = noise.HandshakeNN
+	serverConfig.Initiator = false
+	serverConfig.Prologue = []byte{0}
+	serverConfig.StaticKeypair = serverStaticKeypair
+	serverConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
+	serverHs := noise.NewHandshakeState(serverConfig)
+
+	clientHsMsg, _, _ := clientHs.WriteMessage(nil, nil)
+	assert.Equal(32, len(clientHsMsg), "client handshake message is unexpected size")
+
+	serverHsResult, _, _, err := serverHs.ReadMessage(nil, clientHsMsg)
+	assert.NoError(err, "server failed to read client handshake message")
+	assert.Equal(0, len(serverHsResult), "server result message is unexpected size")
+
+	serverHsMsg, csR0, csR1 := serverHs.WriteMessage(nil, nil)
+	assert.Equal(48, len(serverHsMsg), "server handshake message is unexpected size")
+
+	clientHsResult, csI0, csI1, err := clientHs.ReadMessage(nil, serverHsMsg)
+	assert.NoError(err, "client failed to read server handshake message")
+	assert.Equal(0, len(clientHsResult), "client result message is unexpected size")
+
+	cmd1 := AuthenticateCommand{}
+	ciphertext := CommandToCiphertextBytes(csR0, cmd1)
+	raw1 := cmd1.toBytes()
+
+	cmd2, err := FromCiphertextBytes(csI0, ciphertext)
+	assert.NoError(err, "FromCiphertextBytes failed")
+	raw2 := cmd2.toBytes()
+
+	assert.Equal(raw1, raw2, "byte slices should be equal")
+
+	ciphertext = CommandToCiphertextBytes(csI1, cmd1)
+	raw1 = cmd1.toBytes()
+
+	cmd2, err = FromCiphertextBytes(csR1, ciphertext)
+	assert.NoError(err, "FromCiphertextBytes failed")
+	raw2 = cmd2.toBytes()
+
+	assert.Equal(raw1, raw2, "byte slices should be equal")
 }

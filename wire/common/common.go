@@ -108,6 +108,7 @@ type NoOpCommand struct{}
 
 func (c NoOpCommand) toBytes() []byte {
 	out := make([]byte, messageOverhead+noOpSize)
+	out[0] = byte(noOp)
 	return out
 }
 
@@ -115,6 +116,7 @@ type DisconnectCommand struct{}
 
 func (c DisconnectCommand) toBytes() []byte {
 	out := make([]byte, messageOverhead+disconnectSize)
+	out[0] = byte(disconnect)
 	return out
 }
 
@@ -142,7 +144,7 @@ type SendPacketCommand struct {
 }
 
 func (c SendPacketCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+authCmdSize)
+	out := make([]byte, messageOverhead+SphinxPacketSize)
 	out[0] = byte(sendPacket)
 	out[1] = reserved
 	binary.BigEndian.PutUint16(out[2:4], SphinxPacketSize)
@@ -161,8 +163,9 @@ func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []
 
 // fromBytes converts a byte slice to a command structure
 func fromBytes(raw []byte) (Command, error) {
+	cmd := raw[0]
 	raw = raw[1:]
-	switch commandID(raw[0]) {
+	switch commandID(cmd) {
 	case noOp:
 		if len(raw) != int(noOpSize+messageOverhead-1) {
 			return nil, errInvalidCommand

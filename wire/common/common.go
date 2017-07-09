@@ -29,17 +29,34 @@ import (
 const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
+
 	// MessageSize is the size of a Message
 	MessageSize = MaxPayloadSize + 4
+
 	// MessageCiphertextMaxSize is the size of the encrypted Message
 	// that is the "ciphertext" element of the Ciphertext struct
 	MessageCiphertextMaxSize = MessageSize + 16
+
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
+
 	// Ed25519KeySize is the size of an ed25519 key
 	Ed25519KeySize = 32
+
 	// PrologueSize is the size of our noise handshake prologue
 	PrologueSize = 1
+
+	// noOp is the no-operation command ID
+	noOp commandID = 0x00
+
+	// disconnect is the disconnect command ID
+	disconnect commandID = 0x01
+
+	// authenticate is the authenticate command ID
+	authenticate commandID = 0x02
+
+	// sendPacket is the sendPacket command ID
+	sendPacket commandID = 0x03
 )
 
 // Session is an interface for implementing Client or Server protocols.
@@ -52,15 +69,8 @@ type Session interface {
 	Send(payload []byte) error
 }
 
-// Wire Protocol Commands
+// Wire Protocol Command ID type
 type commandID byte
-
-const (
-	noOp         commandID = 0x00
-	disconnect   commandID = 0x01
-	authenticate commandID = 0x02
-	sendPacket   commandID = 0x03
-)
 
 var errInvalidCommand = errors.New("invalid wire protocol command")
 

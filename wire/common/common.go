@@ -409,12 +409,25 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	if err != nil {
 		return err
 	}
-	/*
-		err = s.authenticate()
+
+	if s.noiseConfig.Initiator {
+		cmd, err := s.Receive()
 		if err != nil {
-			panic(err)
+			return err
 		}
-	*/
+		// XXX todo: verify authenticate command here
+	} else {
+		authCmd := AuthenticateCommand{}
+		err = s.Send(authCmd)
+		if err != nil {
+			return err
+		}
+		cmd, err := s.Receive()
+		if err != nil {
+			return err
+		}
+		// XXX todo: verify authenticate command here
+	}
 	return nil
 }
 

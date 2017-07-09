@@ -21,7 +21,7 @@ import (
 	"errors"
 	"io"
 
-	//"github.com/Katzenpost/core/utils"
+	"github.com/Katzenpost/core/utils"
 	"github.com/Katzenpost/noise"
 )
 
@@ -29,8 +29,11 @@ const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
 
+	// messageOverhead is the number of bytes before the message's payload
+	messageOverhead = 4
+
 	// messageMaxSize is the size of a message
-	messageMaxSize = MaxPayloadSize + 4
+	messageMaxSize = MaxPayloadSize + messageOverhead
 
 	// messageCiphertextMaxSize is the size of the encrypted message
 	// that is the "ciphertext" element of the Ciphertext struct
@@ -52,8 +55,14 @@ const (
 	// unixTimeSize is the size of a unix timestamp
 	unixTimeSize = 4
 
+	// authCmdSize is the size of the authenticate command
+	authCmdSize = ed25519KeySize + ed25519SignatureSize + additionalDataSize + unixTimeSize
+
+	// reserved is a reserved section of the serialized commands
+	reserved = byte(0)
+
 	// noOpSize is the size of a serialized noOp command
-	noOpSize = 10
+	noOpSize = uint16(10)
 
 	// disconnectSize is the size of a serialized disconnect command
 	disconnectSize = 10
@@ -98,14 +107,14 @@ type Command interface {
 type NoOpCommand struct{}
 
 func (c NoOpCommand) toBytes() []byte {
-	out := make([]byte, noOpSize)
+	out := make([]byte, messageOverhead+noOpSize)
 	return out
 }
 
 type DisconnectCommand struct{}
 
 func (c DisconnectCommand) toBytes() []byte {
-	out := make([]byte, disconnectSize)
+	out := make([]byte, messageOverhead+disconnectSize)
 	return out
 }
 
@@ -117,11 +126,14 @@ type AuthenticateCommand struct {
 }
 
 func (c AuthenticateCommand) toBytes() []byte {
-	out := make([]byte, ed25519KeySize+ed25519SignatureSize+additionalDataSize+unixTimeSize)
-	copy(out[0:], c.PublicKey[:])
-	copy(out[ed25519KeySize:], c.Signature[:])
-	copy(out[ed25519KeySize+ed25519SignatureSize:], c.AdditionalData[:])
-	binary.LittleEndian.PutUint32(m[ed25519KeySize+ed25519SignatureSize+additionalDataSize:], c.UnixTime)
+	out := make([]byte, messageOverhead+authCmdSize)
+	out[0] = byte(authenticate)
+	out[1] = reserved
+	binary.BigEndian.PutUint16(out[2:4], authCmdSize)
+	copy(out[4:], c.PublicKey[:])
+	copy(out[4+ed25519KeySize:], c.Signature[:])
+	copy(out[4+ed25519KeySize+ed25519SignatureSize:], c.AdditionalData[:])
+	binary.BigEndian.PutUint32(out[4+ed25519KeySize+ed25519SignatureSize+additionalDataSize:], c.UnixTime)
 	return out
 }
 
@@ -130,20 +142,73 @@ type SendPacketCommand struct {
 }
 
 func (c SendPacketCommand) toBytes() []byte {
-	return c.SphinxPacket[:]
+	out := make([]byte, messageOverhead+authCmdSize)
+	out[0] = byte(sendPacket)
+	out[1] = reserved
+	binary.BigEndian.PutUint16(out[2:4], SphinxPacketSize)
+	copy(out[4:], c.SphinxPacket[:])
+	return out
 }
 
 // CommandToCiphertextBytes converts Command
 // structures to ciphertext bytes
 func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []byte) {
-	raw := c.toPlaintextBytes()
+	raw := cmd.toBytes()
 	ciphertext = cs.Encrypt(ciphertext, nil, raw)
 	cs.Rekey()
 	return ciphertext
 }
 
-func FromBytes(raw []byte) (cmd Command, err error) {
-
+// fromBytes converts a byte slice to a command structure
+func fromBytes(raw []byte) (Command, error) {
+	raw = raw[1:]
+	switch commandID(raw[0]) {
+	case noOp:
+		if len(raw) != int(noOpSize+messageOverhead-1) {
+			return nil, errInvalidCommand
+		}
+		if !utils.CtIsZero(raw) {
+			return nil, errInvalidCommand
+		}
+		return new(NoOpCommand), nil
+	case disconnect:
+		if len(raw) != disconnectSize+messageOverhead-1 {
+			return nil, errInvalidCommand
+		}
+		if !utils.CtIsZero(raw) {
+			return nil, errInvalidCommand
+		}
+		return new(DisconnectCommand), nil
+	case authenticate:
+		if len(raw) != authCmdSize+messageOverhead-1 {
+			return nil, errInvalidCommand
+		}
+		if raw[0] != byte(0) {
+			return nil, errInvalidCommand
+		}
+		cmd := new(AuthenticateCommand)
+		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
+		raw = raw[3:]
+		copy(cmd.PublicKey[:], raw[:ed25519KeySize])
+		copy(cmd.Signature[:], raw[ed25519KeySize:ed25519SignatureSize])
+		copy(cmd.AdditionalData[:], raw[ed25519KeySize+ed25519SignatureSize:])
+		cmd.UnixTime = binary.BigEndian.Uint32(raw[ed25519KeySize+ed25519SignatureSize+additionalDataSize:])
+		return cmd, nil
+	case sendPacket:
+		if len(raw) != SphinxPacketSize+messageOverhead-1 {
+			return nil, errInvalidCommand
+		}
+		if raw[0] != byte(0) {
+			return nil, errInvalidCommand
+		}
+		cmd := new(SendPacketCommand)
+		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
+		raw = raw[3:]
+		copy(cmd.SphinxPacket[:], raw)
+		return cmd, nil
+	default:
+		return nil, errInvalidCommand
+	}
 }
 
 // FromCiphertextBytes converts ciphertext
@@ -155,7 +220,6 @@ func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (cmd Command,
 	if err != nil {
 		return cmd, err
 	}
-
-	// XXX fix me
-
+	cmd, err = fromBytes(plaintext)
+	return cmd, err
 }

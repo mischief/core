@@ -184,15 +184,15 @@ func (c *Ciphertext) ToBytes() ([]byte, error) {
 	return out, nil
 }
 
-// messageCommand is the common interface exposed by all message
+// MessageCommand is the common interface exposed by all message
 // command structures.
-type messageCommand interface {
+type MessageCommand interface {
 	toMessage() *message
 }
 
-type noOpCommand struct{}
+type NoOpCommand struct{}
 
-func (c noOpCommand) toMessage() *message {
+func (c NoOpCommand) toMessage() *message {
 	m := message{
 		command:  noOp,
 		reserved: byte(0),
@@ -203,9 +203,9 @@ func (c noOpCommand) toMessage() *message {
 	return &m
 }
 
-type disconnectCommand struct{}
+type DisconnectCommand struct{}
 
-func (c disconnectCommand) toMessage() *message {
+func (c DisconnectCommand) toMessage() *message {
 	m := message{
 		command:  disconnect,
 		reserved: byte(0),
@@ -216,14 +216,14 @@ func (c disconnectCommand) toMessage() *message {
 	return &m
 }
 
-type authenticateCommand struct {
+type AuthenticateCommand struct {
 	publicKey      [32]byte
 	signature      [64]byte
 	additionalData [64]byte
 	unixTime       uint32
 }
 
-func (c authenticateCommand) toMessage() *message {
+func (c AuthenticateCommand) toMessage() *message {
 	m := make([]byte, 24)
 	copy(m[0:], c.publicKey[:])
 	copy(m[4:], c.signature[:])
@@ -239,11 +239,11 @@ func (c authenticateCommand) toMessage() *message {
 	return &message
 }
 
-type sendPacketCommand struct {
+type SendPacketCommand struct {
 	sphinxPacket [SphinxPacketSize]byte
 }
 
-func (c sendPacketCommand) toMessage() *message {
+func (c SendPacketCommand) toMessage() *message {
 	m := message{
 		command:  sendPacket,
 		reserved: byte(0),
@@ -255,24 +255,24 @@ func (c sendPacketCommand) toMessage() *message {
 }
 
 // CommandFromMessage converts a message into a Command
-func CommandFromMessage(m *message) (cmd messageCommand, err error) {
+func CommandFromMessage(m *message) (cmd MessageCommand, err error) {
 	switch m.command {
 	case noOp:
 		if m.length != 0 || len(m.message) != 0 || len(m.padding) != messageSize {
 			cmd = nil
 			err = errors.New("invalid noOp command")
 		} else {
-			cmd = &noOpCommand{}
+			cmd = &NoOpCommand{}
 		}
 	case disconnect:
 		if m.length != 0 || len(m.message) != 0 || len(m.padding) != messageSize {
 			cmd = nil
 			err = errors.New("invalid disconnect command")
 		} else {
-			cmd = &disconnectCommand{}
+			cmd = &DisconnectCommand{}
 		}
 	case authenticate:
-		auth := authenticateCommand{}
+		auth := AuthenticateCommand{}
 		copy(auth.publicKey[:], m.message[0:4])
 		copy(auth.signature[:], m.message[4:12])
 		copy(auth.additionalData[:], m.message[12:20])
@@ -282,7 +282,7 @@ func CommandFromMessage(m *message) (cmd messageCommand, err error) {
 		if len(m.message) != SphinxPacketSize {
 			err = errors.New("invalid Sphinx command")
 		} else {
-			s := sendPacketCommand{}
+			s := SendPacketCommand{}
 			copy(s.sphinxPacket[:], m.message)
 			cmd = &s
 		}
@@ -293,10 +293,10 @@ func CommandFromMessage(m *message) (cmd messageCommand, err error) {
 }
 
 // CommandFromCiphertextBytes converts ciphertext bytes to
-// messageCommand structures by first converting to a Ciphertext struct
+// MessageCommand structures by first converting to a Ciphertext struct
 // and then decrypting to a message structure and finally converting
-// to a messageCommand structure
-func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cmd messageCommand, err error) {
+// to a MessageCommand structure
+func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cmd MessageCommand, err error) {
 	ciphertext, err := CiphertextFromBytes(rawCiphertext)
 	if err != nil {
 		return cmd, err
@@ -309,10 +309,10 @@ func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cm
 	return cmd, err
 }
 
-// CommandToCiphertextBytes converts messageCommand structures to
+// CommandToCiphertextBytes converts MessageCommand structures to
 // ciphertext bytes by first converting to a message struct and then
 // encrypting to a Ciphertext struct
-func CommandToCiphertextBytes(cs *noise.CipherState, cmd messageCommand) ([]byte, error) {
+func CommandToCiphertextBytes(cs *noise.CipherState, cmd MessageCommand) ([]byte, error) {
 	message := cmd.toMessage()
 	ciphertext, err := message.Encrypt(cs)
 	if err != nil {

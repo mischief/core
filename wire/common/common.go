@@ -30,12 +30,12 @@ const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
 
-	// MessageSize is the size of a Message
-	MessageSize = MaxPayloadSize + 4
+	// messageSize is the size of a message
+	messageSize = MaxPayloadSize + 4
 
-	// MessageCiphertextMaxSize is the size of the encrypted Message
+	// messageCiphertextMaxSize is the size of the encrypted message
 	// that is the "ciphertext" element of the Ciphertext struct
-	MessageCiphertextMaxSize = MessageSize + 16
+	messageCiphertextMaxSize = messageSize + 16
 
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
@@ -74,8 +74,8 @@ type commandID byte
 
 var errInvalidCommand = errors.New("invalid wire protocol command")
 
-// Message is a protocol message
-type Message struct {
+// message is a protocol message
+type message struct {
 	command  commandID
 	reserved byte
 	length   uint16
@@ -83,33 +83,33 @@ type Message struct {
 	padding  []byte
 }
 
-// MessageFromBytes is used to get a Message struct
+// messageFromBytes is used to get a message struct
 // given a slice of bytes
-func MessageFromBytes(raw [MessageSize]byte) (*Message, error) {
-	message := Message{}
+func messageFromBytes(raw [messageSize]byte) (*message, error) {
+	message := message{}
 	message.command = commandID(raw[0])
 	message.reserved = raw[1]
 	if message.reserved != byte(0) {
-		return nil, errors.New("Message's reserved must be set to 0x00")
+		return nil, errors.New("message's reserved must be set to 0x00")
 	}
 	message.length = binary.LittleEndian.Uint16(raw[2:4])
 	if message.length > MaxPayloadSize {
-		return nil, fmt.Errorf("Message's length field %d exceeds MaxPayloadSize of %d",
+		return nil, fmt.Errorf("message's length field %d exceeds MaxPayloadSize of %d",
 			message.length, MaxPayloadSize)
 	}
 	message.message = raw[4 : 4+message.length]
 	message.padding = raw[4+message.length:]
 	if !utils.CtIsZero(message.padding) {
-		return nil, errors.New("Message's padding must be all 0x00 bytes")
+		return nil, errors.New("message's padding must be all 0x00 bytes")
 	}
 	return &message, nil
 }
 
-// ToBytes converts a Message into a byte array
-func (m *Message) ToBytes() ([MessageSize]byte, error) {
-	out := [MessageSize]byte{}
+// ToBytes converts a message into a byte array
+func (m *message) ToBytes() ([messageSize]byte, error) {
+	out := [messageSize]byte{}
 	if !utils.CtIsZero(m.padding) {
-		return out, errors.New("Message's padding must be all 0x00 bytes")
+		return out, errors.New("message's padding must be all 0x00 bytes")
 	}
 	if m.reserved != byte(0) {
 		return out, errors.New("reserved not set to 0x00")
@@ -125,8 +125,8 @@ func (m *Message) ToBytes() ([MessageSize]byte, error) {
 	return out, nil
 }
 
-// Encrypt encrypts a Message returning a Ciphertext
-func (m *Message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
+// Encrypt encrypts a message returning a Ciphertext
+func (m *message) Encrypt(cs *noise.CipherState) (*Ciphertext, error) {
 	raw, err := m.ToBytes()
 	if err != nil {
 		return nil, err
@@ -158,9 +158,9 @@ func CiphertextFromBytes(raw []byte) (*Ciphertext, error) {
 	return &c, nil
 }
 
-// Decrypt decrypts Ciphertext into a Message
-func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
-	var plaintext [MessageSize]byte
+// Decrypt decrypts Ciphertext into a message
+func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*message, error) {
+	var plaintext [messageSize]byte
 	var out []byte
 	var err error
 	out, err = cs.Decrypt(out, nil, c.ciphertext)
@@ -168,7 +168,7 @@ func (c *Ciphertext) Decrypt(cs *noise.CipherState) (*Message, error) {
 		return nil, err
 	}
 	copy(plaintext[:], out)
-	message, err := MessageFromBytes(plaintext)
+	message, err := messageFromBytes(plaintext)
 	cs.Rekey()
 	return message, err
 }
@@ -184,34 +184,34 @@ func (c *Ciphertext) ToBytes() ([]byte, error) {
 	return out, nil
 }
 
-// MessageCommand is the common interface exposed by all message
+// messageCommand is the common interface exposed by all message
 // command structures.
-type MessageCommand interface {
-	ToMessage() *Message
+type messageCommand interface {
+	toMessage() *message
 }
 
 type noOpCommand struct{}
 
-func (c noOpCommand) ToMessage() *Message {
-	m := Message{
+func (c noOpCommand) toMessage() *message {
+	m := message{
 		command:  noOp,
 		reserved: byte(0),
 		length:   uint16(0),
 		message:  []byte{},
-		padding:  make([]byte, MessageSize),
+		padding:  make([]byte, messageSize),
 	}
 	return &m
 }
 
 type disconnectCommand struct{}
 
-func (c disconnectCommand) ToMessage() *Message {
-	m := Message{
+func (c disconnectCommand) toMessage() *message {
+	m := message{
 		command:  disconnect,
 		reserved: byte(0),
 		length:   uint16(0),
 		message:  []byte{},
-		padding:  make([]byte, MessageSize),
+		padding:  make([]byte, messageSize),
 	}
 	return &m
 }
@@ -223,18 +223,18 @@ type authenticateCommand struct {
 	unixTime       uint32
 }
 
-func (c authenticateCommand) ToMessage() *Message {
+func (c authenticateCommand) toMessage() *message {
 	m := make([]byte, 24)
 	copy(m[0:], c.publicKey[:])
 	copy(m[4:], c.signature[:])
 	copy(m[13:], c.additionalData[:])
 	binary.LittleEndian.PutUint32(m[22:], c.unixTime)
-	message := Message{
+	message := message{
 		command:  authenticate,
 		reserved: byte(0),
 		length:   24,
 		message:  []byte{},
-		padding:  make([]byte, MessageSize-24),
+		padding:  make([]byte, messageSize-24),
 	}
 	return &message
 }
@@ -243,29 +243,29 @@ type sendPacketCommand struct {
 	sphinxPacket [SphinxPacketSize]byte
 }
 
-func (c sendPacketCommand) ToMessage() *Message {
-	m := Message{
+func (c sendPacketCommand) toMessage() *message {
+	m := message{
 		command:  sendPacket,
 		reserved: byte(0),
 		length:   uint16(SphinxPacketSize),
 		message:  c.sphinxPacket[:],
-		padding:  make([]byte, MessageSize-SphinxPacketSize),
+		padding:  make([]byte, messageSize-SphinxPacketSize),
 	}
 	return &m
 }
 
-// CommandFromMessage converts a Message into a Command
-func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
+// CommandFromMessage converts a message into a Command
+func CommandFromMessage(m *message) (cmd messageCommand, err error) {
 	switch m.command {
 	case noOp:
-		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
+		if m.length != 0 || len(m.message) != 0 || len(m.padding) != messageSize {
 			cmd = nil
 			err = errors.New("invalid noOp command")
 		} else {
 			cmd = &noOpCommand{}
 		}
 	case disconnect:
-		if m.length != 0 || len(m.message) != 0 || len(m.padding) != MessageSize {
+		if m.length != 0 || len(m.message) != 0 || len(m.padding) != messageSize {
 			cmd = nil
 			err = errors.New("invalid disconnect command")
 		} else {
@@ -293,10 +293,10 @@ func CommandFromMessage(m *Message) (cmd MessageCommand, err error) {
 }
 
 // CommandFromCiphertextBytes converts ciphertext bytes to
-// MessageCommand structures by first converting to a Ciphertext struct
-// and then decrypting to a Message structure and finally converting
-// to a MessageCommand structure
-func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cmd MessageCommand, err error) {
+// messageCommand structures by first converting to a Ciphertext struct
+// and then decrypting to a message structure and finally converting
+// to a messageCommand structure
+func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cmd messageCommand, err error) {
 	ciphertext, err := CiphertextFromBytes(rawCiphertext)
 	if err != nil {
 		return cmd, err
@@ -309,11 +309,11 @@ func CommandFromCiphertextBytes(cs *noise.CipherState, rawCiphertext []byte) (cm
 	return cmd, err
 }
 
-// CommandToCiphertextBytes converts MessageCommand structures to
-// ciphertext bytes by first converting to a Message struct and then
+// CommandToCiphertextBytes converts messageCommand structures to
+// ciphertext bytes by first converting to a message struct and then
 // encrypting to a Ciphertext struct
-func CommandToCiphertextBytes(cs *noise.CipherState, cmd MessageCommand) ([]byte, error) {
-	message := cmd.ToMessage()
+func CommandToCiphertextBytes(cs *noise.CipherState, cmd messageCommand) ([]byte, error) {
+	message := cmd.toMessage()
 	ciphertext, err := message.Encrypt(cs)
 	if err != nil {
 		return nil, err

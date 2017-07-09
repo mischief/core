@@ -372,7 +372,7 @@ func (s *Session) clientHandshake() error {
 	}
 	log.Debug("client sent handshake message")
 
-	receivedHsMsg := make([]byte, 49)
+	receivedHsMsg := make([]byte, serverHandshakeMessageSize)
 	_, err = io.ReadFull(s.conn, receivedHsMsg)
 	if err != nil {
 		return err
@@ -398,20 +398,18 @@ func (s *Session) clientHandshake() error {
 // Initiate receives a handshake from our client.
 // This is the beginning of our wire protocol state machine
 // where the noise handshake is received and responded to.
-func (s *Session) Initiate(conn io.ReadWriteCloser) error {
+func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	s.conn = conn
 
 	if s.noiseConfig.Initiator {
-
+		err = s.clientHandshake()
 	} else {
-
+		err = s.serverHandshake()
 	}
-
+	if err != nil {
+		return err
+	}
 	/*
-		err := s.handshake()
-		if err != nil {
-			panic(err)
-		}
 		err = s.authenticate()
 		if err != nil {
 			panic(err)

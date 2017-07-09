@@ -24,7 +24,10 @@ import (
 
 	"github.com/Katzenpost/core/utils"
 	"github.com/Katzenpost/noise"
+	"github.com/op/go-logging"
 )
+
+var log = logging.MustGetLogger("session")
 
 const (
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
@@ -82,17 +85,15 @@ const (
 
 	// sendPacket is the sendPacket command ID
 	sendPacket commandID = 0x03
-)
 
-// Session is an interface for implementing Client or Server protocols.
-type Session interface {
-	// Initiate should handle the session in a blocking manner
-	// and return when the session is finished,
-	// the Server/Client will subsequently close the connection.
-	Initiate(conn io.ReadWriter) error
-	Close() error
-	Send(payload []byte) error
-}
+	// serverHandshakeMessageSize is the size of the server handshake message
+	// it's our one byte prologue + an ed25519 key + 16 byte MAC
+	serverHandshakeMessageSize = 49
+
+	// clientHandshakeMessageSize is the size of the client handshake message
+	// it's our one byte prologue + an ed25519 key
+	clientHandshakeMessageSize = 33
+)
 
 // Wire Protocol Command ID type
 type commandID byte
@@ -261,4 +262,189 @@ func SendPacket(cmd Command, cs *noise.CipherState, conn io.Writer) error {
 		return fmt.Errorf("failed to send entire packet: %d != %d", count, len(packet))
 	}
 	return nil
+}
+
+// Options is used to configure various properties of the client session
+type Options struct {
+	PrologueVersion byte
+}
+
+var defaultSessionOptions = Options{
+	PrologueVersion: byte(0),
+}
+
+// Config is non-optional configuration for a Session
+type Config struct {
+	Initiator     bool
+	StaticKeypair noise.DHKey
+	Random        io.Reader
+}
+
+// Session is the server side of our
+// noise based wire protocol as specified in the
+// Panoramix Mix Network Wire Protocol Specification
+type Session struct {
+	options        *Options
+	conn           io.ReadWriteCloser
+	noiseConfig    noise.Config
+	handshakeState *noise.HandshakeState
+	cipherState0   *noise.CipherState
+	cipherState1   *noise.CipherState
+}
+
+// New creates a new session.
+func New(config *Config, options *Options) *Session {
+	session := Session{}
+	if options == nil {
+		session.options = &defaultSessionOptions
+	} else {
+		session.options = options
+	}
+	session.noiseConfig = noise.Config{}
+	session.noiseConfig.Random = config.Random
+	session.noiseConfig.Initiator = config.Initiator
+	session.noiseConfig.StaticKeypair = config.StaticKeypair
+	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
+	session.noiseConfig.Pattern = noise.HandshakeNN
+	session.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	session.noiseConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(config.Random)
+	session.handshakeState = noise.NewHandshakeState(session.noiseConfig)
+	return &session
+}
+
+// serverHandshake performs the noise based handshake exchange
+// with the server
+func (s *Session) serverHandshake() error {
+	log.Debug("server initiates handshake")
+	var err error
+
+	receivedHsMsg := make([]byte, clientHandshakeMessageSize)
+	_, err = io.ReadFull(s.conn, receivedHsMsg)
+	if err != nil {
+		return err
+	}
+	log.Debug("server received client handshake message")
+
+	if receivedHsMsg[0] != s.options.PrologueVersion {
+		return fmt.Errorf("received client prologue doesn't match %d != %d", s.options.PrologueVersion, receivedHsMsg[0])
+	}
+
+	serverHsResult, _, _, err := s.handshakeState.ReadMessage(nil, receivedHsMsg)
+	if err != nil {
+		return err
+	}
+	if len(serverHsResult) != 0 {
+		return fmt.Errorf("server decoded incorrect message length: %d != %d", len(serverHsResult), 0)
+	}
+
+	var serverHsMsg []byte
+	serverHsMsg, s.cipherState0, s.cipherState1 = s.handshakeState.WriteMessage(nil, nil)
+	count, err := s.conn.Write(serverHsMsg)
+	if err != nil {
+		return err
+	}
+	if count != len(serverHsMsg) {
+		return fmt.Errorf("server did not send correct handshake length bytes: %d != %d", count, len(serverHsMsg))
+	}
+	log.Debug("server sent handshake message")
+
+	return nil
+}
+
+// clientHandshake performs the noise based handshake exchange
+// with the server
+func (s *Session) clientHandshake() error {
+	log.Debug("client initiates handshake")
+	var err error
+
+	clientHsMsg := make([]byte, 1)
+	hsMsg, _, _ := s.handshakeState.WriteMessage(nil, nil)
+
+	clientHsMsg[0] = s.options.PrologueVersion
+	clientHsMsg = append(clientHsMsg, hsMsg...)
+
+	count, err := s.conn.Write(clientHsMsg)
+	if err != nil {
+		return err
+	}
+	if count != len(clientHsMsg) {
+		return fmt.Errorf("client did not send correct handshake length bytes: %d != %d", count, len(clientHsMsg))
+	}
+	log.Debug("client sent handshake message")
+
+	receivedHsMsg := make([]byte, 49)
+	_, err = io.ReadFull(s.conn, receivedHsMsg)
+	if err != nil {
+		return err
+	}
+	log.Debug("client received server handshake message")
+
+	if receivedHsMsg[0] != s.options.PrologueVersion {
+		return fmt.Errorf("received server prologue doesn't match %d != %d", s.options.PrologueVersion, receivedHsMsg[0])
+	}
+
+	// decode hs message from server
+	var clientHsResult []byte
+	clientHsResult, s.cipherState0, s.cipherState1, err = s.handshakeState.ReadMessage(nil, receivedHsMsg[1:])
+	if err != nil {
+		return err
+	}
+	if len(clientHsResult) != 0 {
+		return fmt.Errorf("client decoded incorrect message length: %d != %d", len(clientHsResult), 0)
+	}
+	return nil
+}
+
+// Initiate receives a handshake from our client.
+// This is the beginning of our wire protocol state machine
+// where the noise handshake is received and responded to.
+func (s *Session) Initiate(conn io.ReadWriteCloser) error {
+	s.conn = conn
+
+	if s.noiseConfig.Initiator {
+
+	} else {
+
+	}
+
+	/*
+		err := s.handshake()
+		if err != nil {
+			panic(err)
+		}
+		err = s.authenticate()
+		if err != nil {
+			panic(err)
+		}
+	*/
+	return nil
+}
+
+// Receive receives a Command
+func (s *Session) Receive() (cmd Command, err error) {
+	if s.noiseConfig.Initiator {
+		log.Debug("client Receive")
+		cmd, err = ReceiveCommand(s.cipherState0, s.conn)
+	} else {
+		log.Debug("server Receive")
+		cmd, err = ReceiveCommand(s.cipherState1, s.conn)
+	}
+	return cmd, err
+}
+
+// Send sends a payload.
+func (s *Session) Send(cmd Command) (err error) {
+	if s.noiseConfig.Initiator {
+		log.Debug("client Send")
+		err = SendPacket(cmd, s.cipherState1, s.conn)
+	} else {
+		log.Debug("server Send")
+		err = SendPacket(cmd, s.cipherState0, s.conn)
+	}
+	return err
+}
+
+// Close closes the session.
+func (s *Session) Close() error {
+	return s.conn.Close()
 }

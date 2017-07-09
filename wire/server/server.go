@@ -18,14 +18,12 @@
 package server
 
 import (
-	"io"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/Katzenpost/core/wire/common"
 	"github.com/op/go-logging"
-	//"github.com/flynn/noise"
 )
 
 var log = logging.MustGetLogger("wire_server")
@@ -165,30 +163,4 @@ func (w *Server) handleConnection(conn net.Conn, id int) {
 	if err := w.session.Initiate(conn); err != nil {
 		log.Debugf("server session initiation error: %s", err.Error())
 	}
-}
-
-// Session is the server side of our
-// noise based wire protocol as specified in the
-// Panoramix Mix Network Wire Protocol Specification
-type Session struct {
-}
-
-// Initiate receives a handshake from our client.
-// This is the beginning of our wire protocol state machine
-// where the noise handshake is received and responded to.
-func (w *Session) Initiate(conn io.ReadWriter) error {
-	// XXX todo: write me
-	return nil
-}
-
-// Close closes the session.
-func (w *Session) Close() error {
-	// XXX todo: write me
-	return nil
-}
-
-// Send sends a payload.
-func (w *Session) Send(payload []byte) error {
-	// XXX todo: write me
-	return nil
 }

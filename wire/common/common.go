@@ -19,6 +19,7 @@ package common
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/Katzenpost/core/utils"
@@ -225,4 +226,39 @@ func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (cmd Command,
 	}
 	cmd, err = fromBytes(plaintext)
 	return cmd, err
+}
+
+func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
+	rawLen := make([]byte, 2)
+	_, err := io.ReadFull(conn, rawLen)
+	if err != nil {
+		return nil, err
+	}
+
+	ciphertextLen := binary.BigEndian.Uint16(rawLen[0:2])
+	ciphertext := make([]byte, ciphertextLen)
+	_, err = io.ReadFull(conn, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd, err := FromCiphertextBytes(cs, ciphertext)
+	return cmd, err
+}
+
+func SendPacket(cmd Command, cs *noise.CipherState, conn io.Writer) error {
+	ciphertext := CommandToCiphertextBytes(cs, cmd)
+	ciphertextLen := len(ciphertext)
+	packet := make([]byte, ciphertextLen+2)
+	binary.BigEndian.PutUint16(packet[0:2], uint16(ciphertextLen))
+	copy(packet[2:], ciphertext)
+
+	count, err := conn.Write(packet)
+	if err != nil {
+		return err
+	}
+	if count != len(packet) {
+		return fmt.Errorf("failed to send entire packet: %d != %d", count, len(packet))
+	}
+	return nil
 }

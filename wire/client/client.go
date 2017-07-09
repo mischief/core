@@ -133,44 +133,18 @@ func (s *Session) authenticate() error {
 	return nil
 }
 
-// Receive receives a message
-func (s *Session) Receive() (*common.Message, error) {
+// Receive receives a Command
+func (s *Session) Receive() (common.Command, error) {
 	log.Debug("client Receive")
-	ciphertext := [common.MessageCiphertextMaxSize]byte{}
-	_, err := io.ReadFull(s.conn, ciphertext[:])
-	if err != nil {
-		return nil, err
-	}
-	rawMessage, err := s.cipherState1.Decrypt(nil, nil, ciphertext[:])
-	if err != nil {
-		return nil, err
-	}
-	packet := [common.MessageSize]byte{}
-	copy(packet[:], rawMessage)
-	message, err := common.MessageFromBytes(packet)
-	return message, err
+
+	cmd, err := common.ReceiveCommand(s.cipherState1, s.conn)
+	return cmd, err
 }
 
 // Send sends a payload
-func (s *Session) Send(message *common.Message) error {
+func (s *Session) Send(cmd common.Command) error {
 	log.Debug("client Send")
-
-	ciphertext, err := message.Encrypt(s.cipherState0)
-	if err != nil {
-		return err
-	}
-	rawCiphertext, err := ciphertext.ToBytes()
-	if err != nil {
-		return err
-	}
-	count, err := s.conn.Write(rawCiphertext)
-	if err != nil {
-		return err
-	}
-	if count != len(rawCiphertext) {
-		return fmt.Errorf("Client Session Send failed to write entire buffer: %d != %d", count, len(rawCiphertext))
-	}
-	return nil
+	return common.SendPacket(cmd, s.cipherState0, s.conn)
 }
 
 // Close closes the Session

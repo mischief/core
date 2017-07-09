@@ -217,18 +217,18 @@ func (c DisconnectCommand) toMessage() *message {
 }
 
 type AuthenticateCommand struct {
-	publicKey      [32]byte
-	signature      [64]byte
-	additionalData [64]byte
-	unixTime       uint32
+	PublicKey      [32]byte
+	Signature      [64]byte
+	AdditionalData [64]byte
+	UnixTime       uint32
 }
 
 func (c AuthenticateCommand) toMessage() *message {
 	m := make([]byte, 24)
-	copy(m[0:], c.publicKey[:])
-	copy(m[4:], c.signature[:])
-	copy(m[13:], c.additionalData[:])
-	binary.LittleEndian.PutUint32(m[22:], c.unixTime)
+	copy(m[0:], c.PublicKey[:])
+	copy(m[4:], c.Signature[:])
+	copy(m[13:], c.AdditionalData[:])
+	binary.LittleEndian.PutUint32(m[22:], c.UnixTime)
 	message := message{
 		command:  authenticate,
 		reserved: byte(0),
@@ -240,7 +240,7 @@ func (c AuthenticateCommand) toMessage() *message {
 }
 
 type SendPacketCommand struct {
-	sphinxPacket [SphinxPacketSize]byte
+	SphinxPacket [SphinxPacketSize]byte
 }
 
 func (c SendPacketCommand) toMessage() *message {
@@ -248,7 +248,7 @@ func (c SendPacketCommand) toMessage() *message {
 		command:  sendPacket,
 		reserved: byte(0),
 		length:   uint16(SphinxPacketSize),
-		message:  c.sphinxPacket[:],
+		message:  c.SphinxPacket[:],
 		padding:  make([]byte, messageSize-SphinxPacketSize),
 	}
 	return &m
@@ -273,17 +273,17 @@ func CommandFromMessage(m *message) (cmd MessageCommand, err error) {
 		}
 	case authenticate:
 		auth := AuthenticateCommand{}
-		copy(auth.publicKey[:], m.message[0:4])
-		copy(auth.signature[:], m.message[4:12])
-		copy(auth.additionalData[:], m.message[12:20])
-		auth.unixTime = binary.LittleEndian.Uint32(m.message[20:])
+		copy(auth.PublicKey[:], m.message[0:4])
+		copy(auth.Signature[:], m.message[4:12])
+		copy(auth.AdditionalData[:], m.message[12:20])
+		auth.UnixTime = binary.LittleEndian.Uint32(m.message[20:])
 		cmd = &auth
 	case sendPacket:
 		if len(m.message) != SphinxPacketSize {
 			err = errors.New("invalid Sphinx command")
 		} else {
 			s := SendPacketCommand{}
-			copy(s.sphinxPacket[:], m.message)
+			copy(s.SphinxPacket[:], m.message)
 			cmd = &s
 		}
 	default:

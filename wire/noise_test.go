@@ -49,6 +49,7 @@ func TestNoiseParams(t *testing.T) {
 	serverConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
 	serverHs := noise.NewHandshakeState(serverConfig)
 
+	// handshake phase
 	clientHsMsg, _, _ := clientHs.WriteMessage(nil, nil)
 	assert.Equal(32, len(clientHsMsg), "client handshake message is unexpected size")
 
@@ -63,6 +64,7 @@ func TestNoiseParams(t *testing.T) {
 	assert.NoError(err, "client failed to read server handshake message")
 	assert.Equal(0, len(clientHsResult), "client result message is unexpected size")
 
+	// data transfer phase
 	clientMessage := []byte("hello")
 	msg := csI0.Encrypt(nil, nil, clientMessage)
 	res, err := csR0.Decrypt(nil, nil, msg)

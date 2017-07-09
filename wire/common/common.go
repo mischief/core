@@ -290,6 +290,7 @@ type Session struct {
 	handshakeState *noise.HandshakeState
 	cipherState0   *noise.CipherState
 	cipherState1   *noise.CipherState
+	doneChan       chan bool
 }
 
 // New creates a new session.
@@ -329,7 +330,7 @@ func (s *Session) serverHandshake() error {
 		return fmt.Errorf("received client prologue doesn't match %d != %d", s.options.PrologueVersion, receivedHsMsg[0])
 	}
 
-	serverHsResult, _, _, err := s.handshakeState.ReadMessage(nil, receivedHsMsg)
+	serverHsResult, _, _, err := s.handshakeState.ReadMessage(nil, receivedHsMsg[1:])
 	if err != nil {
 		return err
 	}
@@ -337,8 +338,12 @@ func (s *Session) serverHandshake() error {
 		return fmt.Errorf("server decoded incorrect message length: %d != %d", len(serverHsResult), 0)
 	}
 
-	var serverHsMsg []byte
-	serverHsMsg, s.cipherState0, s.cipherState1 = s.handshakeState.WriteMessage(nil, nil)
+	var hsMsg []byte
+	serverHsMsg := make([]byte, serverHandshakeMessageSize)
+	hsMsg, s.cipherState0, s.cipherState1 = s.handshakeState.WriteMessage(nil, nil)
+	serverHsMsg[0] = s.options.PrologueVersion
+	copy(serverHsMsg[1:], hsMsg)
+
 	count, err := s.conn.Write(serverHsMsg)
 	if err != nil {
 		return err
@@ -346,7 +351,7 @@ func (s *Session) serverHandshake() error {
 	if count != len(serverHsMsg) {
 		return fmt.Errorf("server did not send correct handshake length bytes: %d != %d", count, len(serverHsMsg))
 	}
-	log.Debug("server sent handshake message")
+	log.Debug("server handshake completed")
 
 	return nil
 }
@@ -392,6 +397,8 @@ func (s *Session) clientHandshake() error {
 	if len(clientHsResult) != 0 {
 		return fmt.Errorf("client decoded incorrect message length: %d != %d", len(clientHsResult), 0)
 	}
+
+	log.Debug("client handshake completed")
 	return nil
 }
 
@@ -415,6 +422,7 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 		if err != nil {
 			return err
 		}
+		fmt.Printf("client received auth cmd with key %x\n", cmd.toBytes())
 		// XXX todo: verify authenticate command here
 	} else {
 		authCmd := AuthenticateCommand{}
@@ -426,6 +434,7 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 		if err != nil {
 			return err
 		}
+		fmt.Printf("server received auth cmd with key %x\n", cmd.toBytes())
 		// XXX todo: verify authenticate command here
 	}
 	return nil
@@ -457,5 +466,13 @@ func (s *Session) Send(cmd Command) (err error) {
 
 // Close closes the session.
 func (s *Session) Close() error {
+	s.doneChan <- true
 	return s.conn.Close()
+}
+
+// NotifyClosed return a channel which receives a bool
+// when Close is called
+func (s *Session) NotifyClosed() <-chan bool {
+	s.doneChan = make(chan bool)
+	return s.doneChan
 }

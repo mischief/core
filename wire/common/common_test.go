@@ -18,6 +18,7 @@ package common
 
 import (
 	"crypto/rand"
+	"net"
 	"testing"
 
 	"github.com/Katzenpost/noise"
@@ -129,4 +130,43 @@ func TestEncryptDecrypt(t *testing.T) {
 	raw2 = cmd2.toBytes()
 
 	assert.Equal(raw1, raw2, "byte slices should be equal")
+}
+
+func TestSession(t *testing.T) {
+	//assert := assert.New(t)
+
+	clientConfig := Config{
+		Initiator:     true,
+		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:        rand.Reader,
+	}
+	clientSession := New(&clientConfig, nil)
+	done := clientSession.NotifyClosed()
+
+	serverConfig := Config{
+		Initiator:     false,
+		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:        rand.Reader,
+	}
+	serverSession := New(&serverConfig, nil)
+
+	clientConn, serverConn := net.Pipe()
+
+	go func() {
+		err := serverSession.Initiate(serverConn)
+		if err != nil {
+			panic(err)
+		}
+	}()
+	go func() {
+		err := clientSession.Initiate(clientConn)
+		if err != nil {
+			panic(err)
+		}
+		err = clientSession.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
+	<-done
 }

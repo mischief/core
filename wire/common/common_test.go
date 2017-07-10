@@ -23,6 +23,7 @@ import (
 
 	"github.com/Katzenpost/noise"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ed25519"
 )
 
 func TestCommandNoOp(t *testing.T) {
@@ -135,18 +136,34 @@ func TestEncryptDecrypt(t *testing.T) {
 func TestSession(t *testing.T) {
 	//assert := assert.New(t)
 
+	clientPublicKey, clientPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
 	clientConfig := Config{
-		Initiator:     true,
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
+		Identifier:         []byte("client1"),
+		AuthPublicKey:      clientPublicKey,
+		AuthPrivateKey:     clientPrivateKey,
+		Initiator:          true,
+		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:             rand.Reader,
 	}
 	clientSession := New(&clientConfig, nil)
 	done := clientSession.NotifyClosed()
 
+	serverPublicKey, serverPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
 	serverConfig := Config{
-		Initiator:     false,
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
+		Identifier:         []byte("NSA_MIX_101"),
+		AuthPublicKey:      serverPublicKey,
+		AuthPrivateKey:     serverPrivateKey,
+		Initiator:          false,
+		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:             rand.Reader,
 	}
 	serverSession := New(&serverConfig, nil)
 

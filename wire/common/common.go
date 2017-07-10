@@ -21,10 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/Katzenpost/core/utils"
 	"github.com/Katzenpost/noise"
 	"github.com/op/go-logging"
+	"golang.org/x/crypto/ed25519"
 )
 
 var log = logging.MustGetLogger("session")
@@ -51,6 +53,9 @@ const (
 
 	// ed25519SignatureSize is the size of an ed25519 signature
 	ed25519SignatureSize = 64
+
+	// blake2bHashSize is the size of a blake2b hash
+	blake2bHashSize = 32
 
 	// additionalDataSize is the size of additional data
 	// in the authentication command
@@ -229,6 +234,9 @@ func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (cmd Command,
 	return cmd, err
 }
 
+// ReceiveCommand reads the next wire protocol command
+// from the connection and decrypts and returns the
+// deserialized command structure
 func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 	rawLen := make([]byte, 2)
 	_, err := io.ReadFull(conn, rawLen)
@@ -247,6 +255,7 @@ func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 	return cmd, err
 }
 
+// SendPacket
 func SendPacket(cmd Command, cs *noise.CipherState, conn io.Writer) error {
 	ciphertext := CommandToCiphertextBytes(cs, cmd)
 	ciphertextLen := len(ciphertext)
@@ -275,9 +284,12 @@ var defaultSessionOptions = Options{
 
 // Config is non-optional configuration for a Session
 type Config struct {
-	Initiator     bool
-	StaticKeypair noise.DHKey
-	Random        io.Reader
+	Initiator          bool
+	NoiseStaticKeypair noise.DHKey
+	Random             io.Reader
+	AuthPublicKey      ed25519.PublicKey
+	AuthPrivateKey     ed25519.PrivateKey
+	Identifier         []byte // max length additionalDataSize
 }
 
 // Session is the server side of our
@@ -285,6 +297,7 @@ type Config struct {
 // Panoramix Mix Network Wire Protocol Specification
 type Session struct {
 	options        *Options
+	config         *Config
 	conn           io.ReadWriteCloser
 	noiseConfig    noise.Config
 	handshakeState *noise.HandshakeState
@@ -301,10 +314,11 @@ func New(config *Config, options *Options) *Session {
 	} else {
 		session.options = options
 	}
+	session.config = config
 	session.noiseConfig = noise.Config{}
 	session.noiseConfig.Random = config.Random
 	session.noiseConfig.Initiator = config.Initiator
-	session.noiseConfig.StaticKeypair = config.StaticKeypair
+	session.noiseConfig.StaticKeypair = config.NoiseStaticKeypair
 	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
 	session.noiseConfig.Pattern = noise.HandshakeNN
 	session.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
@@ -408,6 +422,21 @@ func (s *Session) clientHandshake() error {
 func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	s.conn = conn
 
+	err = s.handshake()
+	if err != nil {
+		return err
+	}
+
+	err = s.authenticate()
+	if err != nil {
+		return err
+	}
+	return
+}
+
+// handshake performs the appropriate handshake,
+// either client or server
+func (s *Session) handshake() (err error) {
 	if s.noiseConfig.Initiator {
 		err = s.clientHandshake()
 	} else {
@@ -416,7 +445,33 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	if err != nil {
 		return err
 	}
+	return
+}
 
+// generateAuthenticateCommand returns an AuthenticateCommand
+func (s *Session) generateAuthenticateCommand() *AuthenticateCommand {
+	// produce an Ed25519 signature covering:
+	// h | byte(len(additional_data)) | additional_data
+	unsignedMessage := make([]byte, blake2bHashSize+1+additionalDataSize)
+	additionalData := make([]byte, additionalDataSize)
+	copy(additionalData, s.config.Identifier)
+	copy(unsignedMessage, s.handshakeState.ChannelBinding())
+	unsignedMessage[blake2bHashSize] = uint8(len(s.config.Identifier))
+	copy(unsignedMessage[blake2bHashSize+1:], additionalData)
+	signature := ed25519.Sign(s.config.AuthPrivateKey, unsignedMessage)
+
+	authCmd := AuthenticateCommand{
+		UnixTime: uint32(time.Now().Unix()), // good till Feb 2106 ;-p
+	}
+	copy(authCmd.PublicKey[:], []byte(s.config.AuthPublicKey))
+	copy(authCmd.Signature[:], signature)
+	copy(authCmd.AdditionalData[:], additionalData)
+	return &authCmd
+}
+
+// authenticate performs the authentication
+// for either the server or client
+func (s *Session) authenticate() (err error) {
 	if s.noiseConfig.Initiator {
 		cmd, err := s.Receive()
 		if err != nil {
@@ -424,8 +479,13 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 		}
 		fmt.Printf("client received auth cmd with key %x\n", cmd.toBytes())
 		// XXX todo: verify authenticate command here
+		authCmd := s.generateAuthenticateCommand()
+		err = s.Send(authCmd)
+		if err != nil {
+			return err
+		}
 	} else {
-		authCmd := AuthenticateCommand{}
+		authCmd := s.generateAuthenticateCommand()
 		err = s.Send(authCmd)
 		if err != nil {
 			return err
@@ -437,7 +497,7 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 		fmt.Printf("server received auth cmd with key %x\n", cmd.toBytes())
 		// XXX todo: verify authenticate command here
 	}
-	return nil
+	return
 }
 
 // Receive receives a Command

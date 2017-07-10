@@ -141,21 +141,22 @@ func TestSession(t *testing.T) {
 		panic(err)
 	}
 
+	serverPublicKey, serverPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
 	clientConfig := Config{
 		Identifier:         []byte("client1"),
 		AuthPublicKey:      clientPublicKey,
 		AuthPrivateKey:     clientPrivateKey,
+		PeerPublicKey:      &serverPublicKey,
 		Initiator:          true,
 		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
 		Random:             rand.Reader,
 	}
 	clientSession := New(&clientConfig, nil)
 	done := clientSession.NotifyClosed()
-
-	serverPublicKey, serverPrivateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
 
 	serverConfig := Config{
 		Identifier:         []byte("NSA_MIX_101"),

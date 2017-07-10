@@ -17,6 +17,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -180,7 +181,7 @@ func fromBytes(raw []byte) (Command, error) {
 		if !utils.CtIsZero(raw) {
 			return nil, errInvalidCommand
 		}
-		return new(NoOpCommand), nil
+		return NoOpCommand{}, nil
 	case disconnect:
 		if len(raw) != disconnectSize+messageOverhead-1 {
 			return nil, errInvalidCommand
@@ -188,7 +189,7 @@ func fromBytes(raw []byte) (Command, error) {
 		if !utils.CtIsZero(raw) {
 			return nil, errInvalidCommand
 		}
-		return new(DisconnectCommand), nil
+		return DisconnectCommand{}, nil
 	case authenticate:
 		if len(raw) != authCmdSize+messageOverhead-1 {
 			return nil, errInvalidCommand
@@ -196,7 +197,7 @@ func fromBytes(raw []byte) (Command, error) {
 		if raw[0] != byte(0) {
 			return nil, errInvalidCommand
 		}
-		cmd := new(AuthenticateCommand)
+		cmd := AuthenticateCommand{}
 		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
 		raw = raw[3:]
 		copy(cmd.PublicKey[:], raw[:ed25519KeySize])
@@ -211,7 +212,7 @@ func fromBytes(raw []byte) (Command, error) {
 		if raw[0] != byte(0) {
 			return nil, errInvalidCommand
 		}
-		cmd := new(SendPacketCommand)
+		cmd := SendPacketCommand{}
 		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
 		raw = raw[3:]
 		copy(cmd.SphinxPacket[:], raw)
@@ -289,6 +290,7 @@ type Config struct {
 	Random             io.Reader
 	AuthPublicKey      ed25519.PublicKey
 	AuthPrivateKey     ed25519.PrivateKey
+	PeerPublicKey      *ed25519.PublicKey
 	Identifier         []byte // max length additionalDataSize
 }
 
@@ -457,6 +459,7 @@ func (s *Session) generateAuthenticateCommand() *AuthenticateCommand {
 	additionalData := make([]byte, additionalDataSize)
 	copy(additionalData, s.config.Identifier)
 	copy(unsignedMessage, s.handshakeState.ChannelBinding())
+
 	unsignedMessage[blake2bHashSize] = uint8(len(s.config.Identifier))
 	copy(unsignedMessage[blake2bHashSize+1:], additionalData)
 	signature := ed25519.Sign(s.config.AuthPrivateKey, unsignedMessage)
@@ -470,6 +473,17 @@ func (s *Session) generateAuthenticateCommand() *AuthenticateCommand {
 	return &authCmd
 }
 
+// verifyAuthSignature verifies an authentication command's signature
+func (s *Session) verifyAuthSignature(auth *AuthenticateCommand) bool {
+	authMsg := make([]byte, blake2bHashSize+1+additionalDataSize)
+	additionalData := make([]byte, additionalDataSize)
+	copy(additionalData, auth.AdditionalData[:])
+	copy(authMsg, s.handshakeState.ChannelBinding())
+	authMsg[blake2bHashSize] = uint8(bytes.Index(additionalData, []byte{0}))
+	copy(authMsg[blake2bHashSize+1:], additionalData)
+	return ed25519.Verify(ed25519.PublicKey(auth.PublicKey[:]), authMsg, auth.Signature[:])
+}
+
 // authenticate performs the authentication
 // for either the server or client
 func (s *Session) authenticate() (err error) {
@@ -478,8 +492,30 @@ func (s *Session) authenticate() (err error) {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("client received auth cmd with key %x\n", cmd.toBytes())
+
+		auth, ok := cmd.(AuthenticateCommand)
+		if !ok {
+			log.Error("received a non-authenticate command")
+			err := s.Close()
+			if err != nil {
+				log.Error(err)
+			}
+			err = errors.New("received a non-authenticate command")
+			return err
+		}
+
 		// XXX todo: verify authenticate command here
+		if s.config.PeerPublicKey != nil {
+			fmt.Println("peer key", *s.config.PeerPublicKey)
+			if !s.verifyAuthSignature(&auth) {
+				log.Error("failed to verify authenticator command's signature")
+				err = errors.New("failed to verify authenticator command's signature")
+				return err
+			}
+		} else {
+			log.Debug("cannot verify auth command signature without peer's public key")
+		}
+
 		authCmd := s.generateAuthenticateCommand()
 		err = s.Send(authCmd)
 		if err != nil {
@@ -495,8 +531,28 @@ func (s *Session) authenticate() (err error) {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("server received auth cmd with key %x\n", cmd.toBytes())
+
+		auth, ok := cmd.(AuthenticateCommand)
+		if !ok {
+			log.Error("received a non-authenticate command")
+			err := s.Close()
+			if err != nil {
+				log.Error(err)
+			}
+			err = errors.New("received a non-authenticate command")
+			return err
+		}
 		// XXX todo: verify authenticate command here
+		if s.config.PeerPublicKey != nil {
+			if !s.verifyAuthSignature(&auth) {
+				log.Error("failed to verify authenticator command's signature")
+				err = errors.New("failed to verify authenticator command's signature")
+				return err
+			}
+		} else {
+			log.Debug("cannot verify auth command signature without peer's public key")
+		}
+
 	}
 	return
 }

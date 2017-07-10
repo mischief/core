@@ -155,7 +155,6 @@ func TestSession(t *testing.T) {
 		Random:             rand.Reader,
 	}
 	clientSession := New(&clientConfig, nil)
-	done := clientSession.NotifyClosed()
 
 	serverConfig := Config{
 		Identifier:         []byte("NSA_MIX_101"),
@@ -166,6 +165,7 @@ func TestSession(t *testing.T) {
 		Random:             rand.Reader,
 	}
 	serverSession := New(&serverConfig, nil)
+	done := serverSession.NotifyClosed()
 
 	clientConn, serverConn := net.Pipe()
 
@@ -174,6 +174,7 @@ func TestSession(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		err = serverSession.Close()
 	}()
 	go func() {
 		err := clientSession.Initiate(clientConn)

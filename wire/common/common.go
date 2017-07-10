@@ -274,9 +274,14 @@ func SendPacket(cmd Command, cs *noise.CipherState, conn io.Writer) error {
 	return nil
 }
 
+type ClientAuthorizer interface {
+	IsClientValid(id []byte, publicKey *[32]byte) bool
+}
+
 // Options is used to configure various properties of the client session
 type Options struct {
-	PrologueVersion byte
+	PrologueVersion  byte
+	ClientAuthorizer ClientAuthorizer
 }
 
 var defaultSessionOptions = Options{
@@ -296,6 +301,7 @@ type Config struct {
 // Session is the server side of our
 // noise based wire protocol as specified in the
 // Panoramix Mix Network Wire Protocol Specification
+
 type Session struct {
 	options        *Options
 	config         *Config
@@ -533,6 +539,9 @@ func (s *Session) authenticate() (err error) {
 			log.Error("failed to verify authenticator command's signature")
 			err = errors.New("failed to verify authenticator command's signature")
 			return err
+		}
+		if s.options.ClientAuthorizer != nil {
+			s.options.ClientAuthorizer.IsClientValid(auth.AdditionalData[:], &auth.PublicKey)
 		}
 	}
 	return

@@ -150,7 +150,6 @@ func TestSession(t *testing.T) {
 		Identifier:         []byte("client1"),
 		AuthPublicKey:      clientPublicKey,
 		AuthPrivateKey:     clientPrivateKey,
-		PeerPublicKey:      &serverPublicKey,
 		Initiator:          true,
 		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
 		Random:             rand.Reader,

@@ -201,7 +201,7 @@ func fromBytes(raw []byte) (Command, error) {
 		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
 		raw = raw[3:]
 		copy(cmd.PublicKey[:], raw[:ed25519KeySize])
-		copy(cmd.Signature[:], raw[ed25519KeySize:ed25519SignatureSize])
+		copy(cmd.Signature[:], raw[ed25519KeySize:ed25519SignatureSize+ed25519KeySize])
 		copy(cmd.AdditionalData[:], raw[ed25519KeySize+ed25519SignatureSize:])
 		cmd.UnixTime = binary.BigEndian.Uint32(raw[ed25519KeySize+ed25519SignatureSize+additionalDataSize:])
 		return cmd, nil
@@ -290,7 +290,6 @@ type Config struct {
 	Random             io.Reader
 	AuthPublicKey      ed25519.PublicKey
 	AuthPrivateKey     ed25519.PrivateKey
-	PeerPublicKey      *ed25519.PublicKey
 	Identifier         []byte // max length additionalDataSize
 }
 
@@ -459,13 +458,11 @@ func (s *Session) generateAuthenticateCommand() *AuthenticateCommand {
 	additionalData := make([]byte, additionalDataSize)
 	copy(additionalData, s.config.Identifier)
 	copy(unsignedMessage, s.handshakeState.ChannelBinding())
-
 	unsignedMessage[blake2bHashSize] = uint8(len(s.config.Identifier))
 	copy(unsignedMessage[blake2bHashSize+1:], additionalData)
 	signature := ed25519.Sign(s.config.AuthPrivateKey, unsignedMessage)
-
 	authCmd := AuthenticateCommand{
-		UnixTime: uint32(time.Now().Unix()), // good till Feb 2106 ;-p
+		UnixTime: uint32(time.Now().Unix()),
 	}
 	copy(authCmd.PublicKey[:], []byte(s.config.AuthPublicKey))
 	copy(authCmd.Signature[:], signature)
@@ -492,7 +489,6 @@ func (s *Session) authenticate() (err error) {
 		if err != nil {
 			return err
 		}
-
 		auth, ok := cmd.(AuthenticateCommand)
 		if !ok {
 			log.Error("received a non-authenticate command")
@@ -503,19 +499,11 @@ func (s *Session) authenticate() (err error) {
 			err = errors.New("received a non-authenticate command")
 			return err
 		}
-
-		// XXX todo: verify authenticate command here
-		if s.config.PeerPublicKey != nil {
-			fmt.Println("peer key", *s.config.PeerPublicKey)
-			if !s.verifyAuthSignature(&auth) {
-				log.Error("failed to verify authenticator command's signature")
-				err = errors.New("failed to verify authenticator command's signature")
-				return err
-			}
-		} else {
-			log.Debug("cannot verify auth command signature without peer's public key")
+		if !s.verifyAuthSignature(&auth) {
+			log.Error("failed to verify authenticator command's signature")
+			err = errors.New("failed to verify authenticator command's signature")
+			return err
 		}
-
 		authCmd := s.generateAuthenticateCommand()
 		err = s.Send(authCmd)
 		if err != nil {
@@ -531,7 +519,6 @@ func (s *Session) authenticate() (err error) {
 		if err != nil {
 			return err
 		}
-
 		auth, ok := cmd.(AuthenticateCommand)
 		if !ok {
 			log.Error("received a non-authenticate command")
@@ -542,17 +529,11 @@ func (s *Session) authenticate() (err error) {
 			err = errors.New("received a non-authenticate command")
 			return err
 		}
-		// XXX todo: verify authenticate command here
-		if s.config.PeerPublicKey != nil {
-			if !s.verifyAuthSignature(&auth) {
-				log.Error("failed to verify authenticator command's signature")
-				err = errors.New("failed to verify authenticator command's signature")
-				return err
-			}
-		} else {
-			log.Debug("cannot verify auth command signature without peer's public key")
+		if !s.verifyAuthSignature(&auth) {
+			log.Error("failed to verify authenticator command's signature")
+			err = errors.New("failed to verify authenticator command's signature")
+			return err
 		}
-
 	}
 	return
 }

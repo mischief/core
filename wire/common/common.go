@@ -75,7 +75,7 @@ const (
 	noOpSize = uint16(10)
 
 	// disconnectSize is the size of a serialized disconnect command
-	disconnectSize = 10
+	disconnectSize = uint16(10)
 
 	// PrologueSize is the size of our noise handshake prologue
 	prologueSize = 1
@@ -115,7 +115,7 @@ type Command interface {
 type NoOpCommand struct{}
 
 func (c NoOpCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+noOpSize)
+	out := make([]byte, messageOverhead+int(noOpSize))
 	out[0] = byte(noOp)
 	return out
 }
@@ -123,7 +123,7 @@ func (c NoOpCommand) toBytes() []byte {
 type DisconnectCommand struct{}
 
 func (c DisconnectCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+disconnectSize)
+	out := make([]byte, messageOverhead+int(disconnectSize))
 	out[0] = byte(disconnect)
 	return out
 }
@@ -175,7 +175,7 @@ func fromBytes(raw []byte) (Command, error) {
 	raw = raw[1:]
 	switch commandID(cmd) {
 	case noOp:
-		if len(raw) != int(noOpSize+messageOverhead-1) {
+		if len(raw) != int(noOpSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
 		if !utils.CtIsZero(raw) {
@@ -183,7 +183,7 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return NoOpCommand{}, nil
 	case disconnect:
-		if len(raw) != disconnectSize+messageOverhead-1 {
+		if len(raw) != int(disconnectSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
 		if !utils.CtIsZero(raw) {
@@ -439,7 +439,14 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	if err != nil {
 		return err
 	}
-	return
+
+	err = s.receiveCommands()
+	if err != nil {
+		return err
+	}
+
+	err = s.Close()
+	return err
 }
 
 // handshake performs the appropriate handshake,
@@ -547,6 +554,36 @@ func (s *Session) authenticate() (err error) {
 	return
 }
 
+// receiveCommands allows client and server to exchange any
+// of the wire protocol commands. This method implements
+// the data transfer phase of the wire protocol.
+func (s *Session) receiveCommands() error {
+	for {
+		cmd, err := s.Receive()
+		if err != nil {
+			return err
+		}
+		switch cmd.(type) {
+		case NoOpCommand:
+			continue
+		case DisconnectCommand:
+			err := s.Close()
+			return err
+		case SendPacketCommand:
+			if s.noiseConfig.Initiator {
+				err := s.Close()
+				if err != nil {
+					return fmt.Errorf("Error, received sendPacket command from server. failed to close: %s", err)
+				}
+				return errors.New("Error, received sendPacket command from server.")
+			}
+			// XXX todo: do something with the Sphinx packet!
+			continue
+		}
+	}
+	return nil
+}
+
 // Receive receives a Command
 func (s *Session) Receive() (cmd Command, err error) {
 	if s.noiseConfig.Initiator {
@@ -573,6 +610,8 @@ func (s *Session) Send(cmd Command) (err error) {
 
 // Close closes the session.
 func (s *Session) Close() error {
+	s.cipherState0 = nil
+	s.cipherState1 = nil
 	s.doneChan <- true
 	return s.conn.Close()
 }

@@ -309,6 +309,7 @@ type Session struct {
 // New creates a new session.
 func New(config *Config, options *Options) *Session {
 	session := Session{}
+	session.doneChan = make(chan bool, 1)
 	if options == nil {
 		session.options = &defaultSessionOptions
 	} else {
@@ -533,6 +534,5 @@ func (s *Session) Close() error {
 // NotifyClosed return a channel which receives a bool
 // when Close is called
 func (s *Session) NotifyClosed() <-chan bool {
-	s.doneChan = make(chan bool)
 	return s.doneChan
 }

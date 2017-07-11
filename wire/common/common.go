@@ -49,6 +49,9 @@ const (
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
 
+	// SURBIdSize is the size of a Sphinx SURB ID
+	SURBIdSize = 16 // XXX: Yawning fix me
+
 	// ed25519KeySize is the size of an ed25519 key
 	ed25519KeySize = 32
 
@@ -80,18 +83,6 @@ const (
 	// PrologueSize is the size of our noise handshake prologue
 	prologueSize = 1
 
-	// noOp is the no-operation command ID
-	noOp commandID = 0x00
-
-	// disconnect is the disconnect command ID
-	disconnect commandID = 0x01
-
-	// authenticate is the authenticate command ID
-	authenticate commandID = 0x02
-
-	// sendPacket is the sendPacket command ID
-	sendPacket commandID = 0x03
-
 	// serverHandshakeMessageSize is the size of the server handshake message
 	// it's our one byte prologue + an ed25519 key + 16 byte MAC
 	serverHandshakeMessageSize = 49
@@ -99,6 +90,27 @@ const (
 	// clientHandshakeMessageSize is the size of the client handshake message
 	// it's our one byte prologue + an ed25519 key
 	clientHandshakeMessageSize = 33
+
+	// retreiveMessageSize is the size of the retreiveMessage command, a 32 bit sequence
+	retreiveMessageSize = 4
+
+	messagePayloadSize = 30000 // XXX fix me
+
+	// messageTypeMessage specifies that the MessageCommand is to transmit
+	// a message instead of an ACKnowledgement
+	messageTypeMessage = 0
+
+	// messageTypeAck specifies that the MessageCommand is to transmit
+	// a message ACKnowledgement
+	messageTypeAck = 1
+
+	// command IDs
+	noOp            commandID = 0
+	disconnect      commandID = 1
+	authenticate    commandID = 2
+	sendPacket      commandID = 3
+	retreiveMessage commandID = 16
+	message         commandID = 17
 )
 
 // Wire Protocol Command ID type
@@ -160,6 +172,52 @@ func (c SendPacketCommand) toBytes() []byte {
 	return out
 }
 
+type RetreiveMessageCommand struct {
+	Sequence uint32
+}
+
+func (c RetreiveMessageCommand) toBytes() []byte {
+	out := make([]byte, messageOverhead+retreiveMessageSize)
+	out[0] = byte(sendPacket)
+	out[1] = reserved
+	binary.BigEndian.PutUint32(out[2:6], retreiveMessageSize)
+	return out
+}
+
+type MessageMessageCommand struct {
+	QueueSizeHint    uint8
+	Sequence         uint32
+	EncryptedPayload [messagePayloadSize]byte
+}
+
+func (c MessageMessageCommand) toBytes() []byte {
+	out := make([]byte, messageOverhead+retreiveMessageSize)
+	out[0] = byte(sendPacket)
+	out[1] = reserved
+	out[2] = c.QueueSizeHint
+	binary.BigEndian.PutUint32(out[3:7], c.Sequence)
+	copy(out[7:], c.EncryptedPayload[:])
+	return out
+}
+
+type MessageAckCommand struct {
+	QueueSizeHint    uint8
+	Sequence         uint32
+	SURBId           [SURBIdSize]byte
+	EncryptedPayload [messagePayloadSize]byte
+}
+
+func (c MessageAckCommand) toBytes() []byte {
+	out := make([]byte, messageOverhead+retreiveMessageSize)
+	out[0] = byte(sendPacket)
+	out[1] = reserved
+	out[2] = c.QueueSizeHint
+	binary.BigEndian.PutUint32(out[3:7], c.Sequence)
+	copy(out[7:], c.SURBId[:])
+	copy(out[7+messagePayloadSize:], c.EncryptedPayload[:])
+	return out
+}
+
 // CommandToCiphertextBytes converts Command
 // structures to ciphertext bytes
 func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []byte) {
@@ -212,11 +270,49 @@ func fromBytes(raw []byte) (Command, error) {
 		if raw[0] != byte(0) {
 			return nil, errInvalidCommand
 		}
-		cmd := SendPacketCommand{}
+		cmd := SendPacketCommand{} // XXX fix me
 		//size := binary.BigEndian.Uint16(raw[1:3]) // XXX should we bother with this?
 		raw = raw[3:]
 		copy(cmd.SphinxPacket[:], raw)
 		return cmd, nil
+	case retreiveMessage:
+		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
+			return nil, errInvalidCommand
+		}
+		if raw[0] != byte(0) {
+			return nil, errInvalidCommand
+		}
+		raw = raw[3:]
+		cmd := RetreiveMessageCommand{
+			Sequence: binary.BigEndian.Uint32(raw),
+		}
+		return cmd, nil
+	case message:
+		// XXX todo: finish me
+		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
+			return nil, errInvalidCommand
+		}
+		if raw[0] != byte(0) {
+			return nil, errInvalidCommand
+		}
+		raw = raw[3:]
+		queueSizeHint := raw[1]
+		sequence := binary.BigEndian.Uint32(raw[2:])
+		switch byte(raw[0]) {
+		case messageTypeMessage:
+			cmd := MessageMessageCommand{
+				QueueSizeHint: queueSizeHint,
+				Sequence:      sequence,
+			}
+			return cmd, nil
+		case messageTypeAck:
+			cmd := MessageAckCommand{
+				QueueSizeHint: queueSizeHint,
+				Sequence:      sequence,
+			}
+			return cmd, nil
+		}
+		return nil, errInvalidCommand
 	default:
 		return nil, errInvalidCommand
 	}

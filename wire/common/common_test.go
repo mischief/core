@@ -133,18 +133,13 @@ func TestEncryptDecrypt(t *testing.T) {
 	assert.Equal(raw1, raw2, "byte slices should be equal")
 }
 
-func TestSession(t *testing.T) {
-	//assert := assert.New(t)
+func TestSessionBasic(t *testing.T) {
+	assert := assert.New(t)
 
 	clientPublicKey, clientPrivateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-
+	assert.NoError(err, "failed to gen key")
 	serverPublicKey, serverPrivateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
+	assert.NoError(err, "failed to gen key")
 
 	clientConfig := Config{
 		Identifier:         []byte("client1"),
@@ -171,20 +166,26 @@ func TestSession(t *testing.T) {
 
 	go func() {
 		err := serverSession.Initiate(serverConn)
-		if err != nil {
-			panic(err)
-		}
+		assert.NoError(err, "server failed to initiate session")
+
+		cmd, err := serverSession.Receive()
+		assert.NoError(err, "server failed to receive session command")
+
+		_, ok := cmd.(DisconnectCommand)
+		assert.True(ok, "type assertion should be true")
+
 		err = serverSession.Close()
+		assert.NoError(err, "server failed to close session")
 	}()
 	go func() {
 		err := clientSession.Initiate(clientConn)
-		if err != nil {
-			panic(err)
-		}
+		assert.NoError(err, "client failed to initiate session")
+
+		err = clientSession.Send(DisconnectCommand{})
+		assert.NoError(err, "client failed to disconnect session")
+
 		err = clientSession.Close()
-		if err != nil {
-			panic(err)
-		}
+		assert.NoError(err, "client failed to close session")
 	}()
 	<-done
 }

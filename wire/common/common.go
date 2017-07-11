@@ -400,7 +400,6 @@ type Config struct {
 // Session is the server side of our
 // noise based wire protocol as specified in the
 // Panoramix Mix Network Wire Protocol Specification
-
 type Session struct {
 	options        *Options
 	config         *Config
@@ -523,31 +522,6 @@ func (s *Session) clientHandshake() error {
 	return nil
 }
 
-// Initiate receives a handshake from our client.
-// This is the beginning of our wire protocol state machine
-// where the noise handshake is received and responded to.
-func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
-	s.conn = conn
-
-	err = s.handshake()
-	if err != nil {
-		return err
-	}
-
-	err = s.authenticate()
-	if err != nil {
-		return err
-	}
-
-	err = s.receiveCommands()
-	if err != nil {
-		return err
-	}
-
-	err = s.Close()
-	return err
-}
-
 // handshake performs the appropriate handshake,
 // either client or server
 func (s *Session) handshake() (err error) {
@@ -653,61 +627,55 @@ func (s *Session) authenticate() (err error) {
 	return
 }
 
-// receiveCommands allows client and server to exchange any
-// of the wire protocol commands. This method implements
-// the data transfer phase of the wire protocol.
-func (s *Session) receiveCommands() error {
-	for {
-		cmd, err := s.Receive()
-		if err != nil {
-			return err
-		}
-		switch cmd.(type) {
-		case NoOpCommand:
-			continue
-		case DisconnectCommand:
+// Initiate receives a handshake from our client.
+// This is the beginning of our wire protocol state machine
+// where the noise handshake is received and responded to.
+func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
+	s.conn = conn
+	err = s.handshake()
+	if err != nil {
+		return err
+	}
+	err = s.authenticate()
+	return err
+}
+
+// hasReceiveError evaluates a received command
+// and returns an error if the command
+// is invalid for client or server
+func (s *Session) hasReceiveError(cmd Command) error {
+	switch cmd.(type) {
+	case SendPacketCommand:
+		if s.noiseConfig.Initiator {
 			err := s.Close()
-			return err
-		case SendPacketCommand:
-			if s.noiseConfig.Initiator {
-				err := s.Close()
-				if err != nil {
-					return fmt.Errorf("Error, server received sendPacket command: failed to close: %s", err)
-				}
-				return errors.New("Error, server received sendPacket command.")
+			if err != nil {
+				return fmt.Errorf("Error, server received sendPacket command: failed to close: %s", err)
 			}
-			// XXX todo: do something with the Sphinx packet!
-			continue
-		case RetreiveMessageCommand:
-			if s.noiseConfig.Initiator {
-				err := s.Close()
-				if err != nil {
-					return fmt.Errorf("Error, client received retrieveMessage command: failed to close: %s", err)
-				}
-				return errors.New("Error, client received retrieveMessage command.")
+			return errors.New("Error, server received sendPacket command.")
+		}
+	case RetreiveMessageCommand:
+		if s.noiseConfig.Initiator {
+			err := s.Close()
+			if err != nil {
+				return fmt.Errorf("Error, client received retrieveMessage command: failed to close: %s", err)
 			}
-			// XXX todo: do something with the RetreiveMessageCommand struct
-			continue
-		case MessageMessageCommand:
-			if !s.noiseConfig.Initiator {
-				err := s.Close()
-				if err != nil {
-					return fmt.Errorf("Error, server received MessageMessage command: failed to close: %s", err)
-				}
-				return errors.New("Error, server received MessageMessage command.")
+			return errors.New("Error, client received retrieveMessage command.")
+		}
+	case MessageMessageCommand:
+		if !s.noiseConfig.Initiator {
+			err := s.Close()
+			if err != nil {
+				return fmt.Errorf("Error, server received MessageMessage command: failed to close: %s", err)
 			}
-			// XXX todo: do something with the MessageMessageCommand struct
-			continue
-		case MessageAckCommand:
-			if !s.noiseConfig.Initiator {
-				err := s.Close()
-				if err != nil {
-					return fmt.Errorf("Error, server received MessageAck command: failed to close: %s", err)
-				}
-				return errors.New("Error, server received MessageAck command.")
+			return errors.New("Error, server received MessageMessage command.")
+		}
+	case MessageAckCommand:
+		if !s.noiseConfig.Initiator {
+			err := s.Close()
+			if err != nil {
+				return fmt.Errorf("Error, server received MessageAck command: failed to close: %s", err)
 			}
-			// XXX todo: do something with the MessageAckCommand struct
-			continue
+			return errors.New("Error, server received MessageAck command.")
 		}
 	}
 	return nil
@@ -721,6 +689,10 @@ func (s *Session) Receive() (cmd Command, err error) {
 	} else {
 		log.Debug("server Receive")
 		cmd, err = ReceiveCommand(s.cipherState1, s.conn)
+	}
+	err = s.hasReceiveError(cmd)
+	if err != nil {
+		return nil, err
 	}
 	return cmd, err
 }

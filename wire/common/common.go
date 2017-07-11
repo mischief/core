@@ -672,11 +672,41 @@ func (s *Session) receiveCommands() error {
 			if s.noiseConfig.Initiator {
 				err := s.Close()
 				if err != nil {
-					return fmt.Errorf("Error, received sendPacket command from server. failed to close: %s", err)
+					return fmt.Errorf("Error, server received sendPacket command: failed to close: %s", err)
 				}
-				return errors.New("Error, received sendPacket command from server.")
+				return errors.New("Error, server received sendPacket command.")
 			}
 			// XXX todo: do something with the Sphinx packet!
+			continue
+		case RetreiveMessageCommand:
+			if s.noiseConfig.Initiator {
+				err := s.Close()
+				if err != nil {
+					return fmt.Errorf("Error, client received retrieveMessage command: failed to close: %s", err)
+				}
+				return errors.New("Error, client received retrieveMessage command.")
+			}
+			// XXX todo: do something with the RetreiveMessageCommand struct
+			continue
+		case MessageMessageCommand:
+			if !s.noiseConfig.Initiator {
+				err := s.Close()
+				if err != nil {
+					return fmt.Errorf("Error, server received MessageMessage command: failed to close: %s", err)
+				}
+				return errors.New("Error, server received MessageMessage command.")
+			}
+			// XXX todo: do something with the MessageMessageCommand struct
+			continue
+		case MessageAckCommand:
+			if !s.noiseConfig.Initiator {
+				err := s.Close()
+				if err != nil {
+					return fmt.Errorf("Error, server received MessageAck command: failed to close: %s", err)
+				}
+				return errors.New("Error, server received MessageAck command.")
+			}
+			// XXX todo: do something with the MessageAckCommand struct
 			continue
 		}
 	}

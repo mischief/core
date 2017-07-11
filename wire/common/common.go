@@ -304,12 +304,15 @@ func fromBytes(raw []byte) (Command, error) {
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
+			copy(cmd.EncryptedPayload[:], raw[6:])
 			return cmd, nil
 		case messageTypeAck:
 			cmd := MessageAckCommand{
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
+			copy(cmd.SURBId[:], raw[6:6+SURBIdSize])
+			copy(cmd.EncryptedPayload[:], raw[6+SURBIdSize:messagePayloadSize])
 			return cmd, nil
 		}
 		return nil, errInvalidCommand

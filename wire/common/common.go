@@ -172,11 +172,11 @@ func (c SendPacketCommand) toBytes() []byte {
 	return out
 }
 
-type RetreiveMessageCommand struct {
+type RetrieveMessageCommand struct {
 	Sequence uint32
 }
 
-func (c RetreiveMessageCommand) toBytes() []byte {
+func (c RetrieveMessageCommand) toBytes() []byte {
 	out := make([]byte, messageOverhead+retreiveMessageSize)
 	out[0] = byte(sendPacket)
 	out[1] = reserved
@@ -283,7 +283,7 @@ func fromBytes(raw []byte) (Command, error) {
 			return nil, errInvalidCommand
 		}
 		raw = raw[3:]
-		cmd := RetreiveMessageCommand{
+		cmd := RetrieveMessageCommand{
 			Sequence: binary.BigEndian.Uint32(raw),
 		}
 		return cmd, nil
@@ -653,7 +653,7 @@ func (s *Session) hasReceiveError(cmd Command) error {
 			}
 			return errors.New("Error, server received sendPacket command.")
 		}
-	case RetreiveMessageCommand:
+	case RetrieveMessageCommand:
 		if s.noiseConfig.Initiator {
 			err := s.Close()
 			if err != nil {

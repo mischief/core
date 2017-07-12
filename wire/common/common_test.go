@@ -146,7 +146,6 @@ func TestSessionBasic(t *testing.T) {
 		LongtermEd25519PublicKey:  clientPublicKey,
 		LongtermEd25519PrivateKey: clientPrivateKey,
 		Initiator:                 true,
-		NoiseStaticKeypair:        noise.DH25519.GenerateKeypair(rand.Reader),
 		Random:                    rand.Reader,
 	}
 	clientSession := New(&clientConfig, nil)
@@ -156,7 +155,6 @@ func TestSessionBasic(t *testing.T) {
 		LongtermEd25519PublicKey:  serverPublicKey,
 		LongtermEd25519PrivateKey: serverPrivateKey,
 		Initiator:                 false,
-		NoiseStaticKeypair:        noise.DH25519.GenerateKeypair(rand.Reader),
 		Random:                    rand.Reader,
 	}
 	serverSession := New(&serverConfig, nil)

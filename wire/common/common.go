@@ -379,7 +379,11 @@ type ClientAuthorizer interface {
 
 // Options is used to configure various properties of the client session
 type Options struct {
-	PrologueVersion  byte
+	// Noise Handshake Prologue value represents our wire protocol version
+	// and currently should be set to a zero byte
+	PrologueVersion byte
+
+	// ClientAuthorizer is used by Providers to authorize their clients
 	ClientAuthorizer ClientAuthorizer
 }
 
@@ -389,12 +393,21 @@ var defaultSessionOptions = Options{
 
 // Config is non-optional configuration for a Session
 type Config struct {
-	Initiator                 bool
-	NoiseStaticKeypair        noise.DHKey
-	Random                    io.Reader
-	LongtermEd25519PublicKey  ed25519.PublicKey
+	// Initiator indicates whether this session is used by
+	// a client or a server
+	Initiator bool
+
+	// Identifier is used as a Provider, Mix or Client identifier
+	Identifier []byte // max length additionalDataSize
+
+	// Random is a source of random data used by the Noise library
+	Random io.Reader
+
+	// LongtermEd25519PublicKey is the longterm Ed25519 public key
+	LongtermEd25519PublicKey ed25519.PublicKey
+
+	// LongtermEd25519PrivateKey is the longterm Ed25519 private key
 	LongtermEd25519PrivateKey ed25519.PrivateKey
-	Identifier                []byte // max length additionalDataSize
 }
 
 // Session is the server side of our
@@ -424,7 +437,6 @@ func New(config *Config, options *Options) *Session {
 	session.noiseConfig = noise.Config{}
 	session.noiseConfig.Random = config.Random
 	session.noiseConfig.Initiator = config.Initiator
-	session.noiseConfig.StaticKeypair = config.NoiseStaticKeypair
 	session.noiseConfig.Prologue = []byte{session.options.PrologueVersion}
 	session.noiseConfig.Pattern = noise.HandshakeNN
 	session.noiseConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)

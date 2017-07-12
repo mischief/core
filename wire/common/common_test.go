@@ -142,22 +142,22 @@ func TestSessionBasic(t *testing.T) {
 	assert.NoError(err, "failed to gen key")
 
 	clientConfig := Config{
-		Identifier:         []byte("client1"),
-		AuthPublicKey:      clientPublicKey,
-		AuthPrivateKey:     clientPrivateKey,
-		Initiator:          true,
-		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:             rand.Reader,
+		Identifier:                []byte("client1"),
+		LongtermEd25519PublicKey:  clientPublicKey,
+		LongtermEd25519PrivateKey: clientPrivateKey,
+		Initiator:                 true,
+		NoiseStaticKeypair:        noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:                    rand.Reader,
 	}
 	clientSession := New(&clientConfig, nil)
 
 	serverConfig := Config{
-		Identifier:         []byte("NSA_MIX_101"),
-		AuthPublicKey:      serverPublicKey,
-		AuthPrivateKey:     serverPrivateKey,
-		Initiator:          false,
-		NoiseStaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:             rand.Reader,
+		Identifier:                []byte("NSA_MIX_101"),
+		LongtermEd25519PublicKey:  serverPublicKey,
+		LongtermEd25519PrivateKey: serverPrivateKey,
+		Initiator:                 false,
+		NoiseStaticKeypair:        noise.DH25519.GenerateKeypair(rand.Reader),
+		Random:                    rand.Reader,
 	}
 	serverSession := New(&serverConfig, nil)
 	done := serverSession.NotifyClosed()

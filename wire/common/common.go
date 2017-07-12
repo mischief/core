@@ -389,12 +389,12 @@ var defaultSessionOptions = Options{
 
 // Config is non-optional configuration for a Session
 type Config struct {
-	Initiator          bool
-	NoiseStaticKeypair noise.DHKey
-	Random             io.Reader
-	AuthPublicKey      ed25519.PublicKey
-	AuthPrivateKey     ed25519.PrivateKey
-	Identifier         []byte // max length additionalDataSize
+	Initiator                 bool
+	NoiseStaticKeypair        noise.DHKey
+	Random                    io.Reader
+	LongtermEd25519PublicKey  ed25519.PublicKey
+	LongtermEd25519PrivateKey ed25519.PrivateKey
+	Identifier                []byte // max length additionalDataSize
 }
 
 // Session is the server side of our
@@ -546,11 +546,11 @@ func (s *Session) generateAuthenticateCommand() *AuthenticateCommand {
 	copy(unsignedMessage, s.handshakeState.ChannelBinding())
 	unsignedMessage[blake2bHashSize] = uint8(len(s.config.Identifier))
 	copy(unsignedMessage[blake2bHashSize+1:], additionalData)
-	signature := ed25519.Sign(s.config.AuthPrivateKey, unsignedMessage)
+	signature := ed25519.Sign(s.config.LongtermEd25519PrivateKey, unsignedMessage)
 	authCmd := AuthenticateCommand{
 		UnixTime: uint32(time.Now().Unix()),
 	}
-	copy(authCmd.PublicKey[:], []byte(s.config.AuthPublicKey))
+	copy(authCmd.PublicKey[:], []byte(s.config.LongtermEd25519PublicKey))
 	copy(authCmd.Signature[:], signature)
 	copy(authCmd.AdditionalData[:], additionalData)
 	return &authCmd

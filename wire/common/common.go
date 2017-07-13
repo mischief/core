@@ -46,6 +46,13 @@ const (
 	// that is the "ciphertext" element of the Ciphertext struct
 	messageCiphertextMaxSize = messageMaxSize + 16
 
+	// messageMessageSize is the size of the inner message of
+	// the "message" command
+	messageMessageSize = MaxPayloadSize + 5 // XXX fix me
+
+	// messageAckSize
+	messageAckSize = messageMessageSize
+
 	// SphinxPacketSize is the Sphinx packet size
 	SphinxPacketSize = 32768 // XXX: Yawning fix me
 
@@ -191,12 +198,17 @@ type MessageMessageCommand struct {
 }
 
 func (c MessageMessageCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+retreiveMessageSize)
-	out[0] = byte(sendPacket)
+	out := make([]byte, messageOverhead+messageMessageSize+100)
+	out[0] = byte(message)
 	out[1] = reserved
-	out[2] = c.QueueSizeHint
-	binary.BigEndian.PutUint32(out[3:7], c.Sequence)
-	copy(out[7:], c.EncryptedPayload[:])
+	// out[2:6] is written as msg_length in the spec
+	binary.BigEndian.PutUint32(out[2:6], messageMessageSize)
+	// out[4:] inner messageACK struct fields follow:
+	out[6] = messageTypeMessage
+	out[7] = c.QueueSizeHint
+	binary.BigEndian.PutUint32(out[8:12], c.Sequence)
+
+	copy(out[12:], c.EncryptedPayload[:])
 	return out
 }
 
@@ -209,12 +221,16 @@ type MessageAckCommand struct {
 
 func (c MessageAckCommand) toBytes() []byte {
 	out := make([]byte, messageOverhead+retreiveMessageSize)
-	out[0] = byte(sendPacket)
+	out[0] = byte(message)
 	out[1] = reserved
-	out[2] = c.QueueSizeHint
-	binary.BigEndian.PutUint32(out[3:7], c.Sequence)
-	copy(out[7:], c.SURBId[:])
-	copy(out[7+messagePayloadSize:], c.EncryptedPayload[:])
+	// out[2:6] is written as msg_length in the spec
+	binary.BigEndian.PutUint32(out[2:6], messageAckSize)
+	// out[6:] inner messageACK struct fields follow:
+	out[6] = messageTypeAck
+	out[7] = c.QueueSizeHint
+	binary.BigEndian.PutUint32(out[8:12], c.Sequence)
+	copy(out[12:12+SURBIdSize], c.SURBId[:])
+	copy(out[12+SURBIdSize:], c.EncryptedPayload[:])
 	return out
 }
 
@@ -229,10 +245,12 @@ func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []
 
 // fromBytes converts a byte slice to a command structure
 func fromBytes(raw []byte) (Command, error) {
+	fmt.Println("fromBytes")
 	cmd := raw[0]
 	raw = raw[1:]
 	switch commandID(cmd) {
 	case noOp:
+		fmt.Println("noOp")
 		if len(raw) != int(noOpSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -241,6 +259,7 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return NoOpCommand{}, nil
 	case disconnect:
+		fmt.Println("disconnect")
 		if len(raw) != int(disconnectSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -249,6 +268,7 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return DisconnectCommand{}, nil
 	case authenticate:
+		fmt.Println("authenticate")
 		if len(raw) != authCmdSize+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -264,6 +284,7 @@ func fromBytes(raw []byte) (Command, error) {
 		cmd.UnixTime = binary.BigEndian.Uint32(raw[ed25519KeySize+ed25519SignatureSize+additionalDataSize:])
 		return cmd, nil
 	case sendPacket:
+		fmt.Println("sendPacket")
 		if len(raw) != SphinxPacketSize+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -276,6 +297,7 @@ func fromBytes(raw []byte) (Command, error) {
 		copy(cmd.SphinxPacket[:], raw)
 		return cmd, nil
 	case retreiveMessage:
+		fmt.Println("retrieveMessage")
 		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -288,31 +310,37 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return cmd, nil
 	case message:
+		fmt.Println("message")
 		// XXX todo: finish me
 		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
-		if raw[0] != byte(0) {
+		if raw[0] != byte(0) { // reserved field
 			return nil, errInvalidCommand
 		}
-		raw = raw[3:]
-		queueSizeHint := raw[1]
-		sequence := binary.BigEndian.Uint32(raw[2:])
-		switch byte(raw[0]) {
+		messageSize := binary.BigEndian.Uint32(raw[1:5])
+		messageType := raw[5]
+		queueSizeHint := raw[6]
+		sequence := binary.BigEndian.Uint32(raw[6:10])
+
+		fmt.Printf("<<>>MESSAGE\n")
+
+		switch byte(messageType) {
 		case messageTypeMessage:
 			cmd := MessageMessageCommand{
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
-			copy(cmd.EncryptedPayload[:], raw[6:])
+			copy(cmd.EncryptedPayload[:], raw[10:10+messageSize])
 			return cmd, nil
 		case messageTypeAck:
+			fmt.Println("Ack")
 			cmd := MessageAckCommand{
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
-			copy(cmd.SURBId[:], raw[6:6+SURBIdSize])
-			copy(cmd.EncryptedPayload[:], raw[6+SURBIdSize:messagePayloadSize])
+			copy(cmd.SURBId[:], raw[10:10+SURBIdSize])
+			copy(cmd.EncryptedPayload[:], raw[10+SURBIdSize:messageSize])
 			return cmd, nil
 		}
 		return nil, errInvalidCommand

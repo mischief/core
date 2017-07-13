@@ -19,144 +19,145 @@ package client
 import (
 	"crypto/rand"
 	"fmt"
-	"io"
 	"net"
 	"testing"
 
 	"github.com/Katzenpost/core/wire/common"
-	"github.com/Katzenpost/noise"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ed25519"
 )
 
-func TestClientHandshake(t *testing.T) {
+func TestClientSendReceiveMessage(t *testing.T) {
 	assert := assert.New(t)
-	config := Config{
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
+
+	// generate Alice and Bob's wire protocol Ed25519 keys for
+	// authenticating themselves to "the server"
+	aliceEd25519PublicKey, aliceEd25519PrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(err, "failed to gen key")
+	bobEd25519PublicKey, bobEd25519PrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(err, "failed to gen key")
+
+	// create Alice and Bob's Session
+	aliceConfig := common.Config{
+		Identifier:                []byte("alice"),
+		LongtermEd25519PublicKey:  aliceEd25519PublicKey,
+		LongtermEd25519PrivateKey: aliceEd25519PrivateKey,
+		Initiator:                 true,
+		Random:                    rand.Reader,
 	}
-	session := New(&config, nil)
-	clientConn, serverConn := net.Pipe()
+	aliceSession := common.New(&aliceConfig, nil)
+	aliceDone := aliceSession.NotifyClosed()
 
-	serverStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
-	serverConfig := noise.Config{}
-	serverConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	serverConfig.Random = rand.Reader
-	serverConfig.Pattern = noise.HandshakeNN
-	serverConfig.Initiator = false
-	serverConfig.Prologue = []byte{0}
-	serverConfig.StaticKeypair = serverStaticKeypair
-	serverConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
-	serverHs := noise.NewHandshakeState(serverConfig)
+	bobConfig := common.Config{
+		Identifier:                []byte("bob"),
+		LongtermEd25519PublicKey:  bobEd25519PublicKey,
+		LongtermEd25519PrivateKey: bobEd25519PrivateKey,
+		Initiator:                 true,
+		Random:                    rand.Reader,
+	}
+	bobSession := common.New(&bobConfig, nil)
+	bobDone := bobSession.NotifyClosed()
 
+	// create "message Provider" server sessions
+	serverEd25519PublicKey, serverEd25519PrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(err, "failed to gen key")
+	serverConfig := common.Config{
+		Identifier:                []byte("Provider_123"),
+		LongtermEd25519PublicKey:  serverEd25519PublicKey,
+		LongtermEd25519PrivateKey: serverEd25519PrivateKey,
+		Initiator:                 false,
+		Random:                    rand.Reader,
+	}
+	serverSession1 := common.New(&serverConfig, nil)
+	serverSession2 := common.New(&serverConfig, nil)
+
+	//serverDone := serverSession.NotifyClosed()
+
+	aliceConn, serverConn1 := net.Pipe()
+	bobConn, serverConn2 := net.Pipe()
+
+	// server
 	go func() {
-		// server reads client's initial handshake message
-		clientHsMsg := make([]byte, 33)
-		_, err := io.ReadFull(serverConn, clientHsMsg)
-		assert.NoError(err, "server failed to receive client handshake message")
-		assert.Equal(33, len(clientHsMsg), "server received unexpected length client handshake message")
+		err := serverSession1.Initiate(serverConn1)
+		assert.NoError(err, "server failed to initiate session")
 
-		serverHsResult, _, _, err := serverHs.ReadMessage(nil, clientHsMsg[1:])
-		assert.NoError(err, "server failed to 'ReadMessage' client handshake message")
-		assert.Equal(0, len(serverHsResult), "server result message is unexpected size")
+		cmd, err := serverSession1.Receive()
+		assert.NoError(err, "server failed to receive session command")
 
-		serverHsMsg := make([]byte, 1)
-		hsMsg, _, _ := serverHs.WriteMessage(nil, nil)
-		serverHsMsg = append(serverHsMsg, hsMsg...)
+		message, ok := cmd.(common.MessageMessageCommand)
+		fmt.Printf("--->message Sequence %d type %T assertion %v\n", message.Sequence, message, ok)
+		assert.True(ok, "type assertion should be true")
 
-		count, err := serverConn.Write(serverHsMsg)
-		assert.NoError(err, "server failed to send handshake response message")
-		assert.Equal(count, len(serverHsMsg), "server sent incorrect length handshake message")
+		cmd, err = serverSession1.Receive()
+		assert.NoError(err, "server failed to receive session command")
+
+		_, ok = cmd.(common.DisconnectCommand)
+		assert.True(ok, "type assertion should be true")
+
+		err = serverSession1.Close()
+		assert.NoError(err, "server failed to close session")
+
+		err = serverSession2.Initiate(serverConn2)
+		assert.NoError(err, "server failed to initiate session")
+
+		cmd, err = serverSession2.Receive()
+		assert.NoError(err, "server failed to receive session command")
+
+		//retreiveMessage, ok := cmd.(common.RetrieveMessageCommand)
+		_, ok = cmd.(common.RetrieveMessageCommand)
+		assert.True(ok, "type assertion should be true")
+
+		err = serverSession2.Send(message)
+		assert.NoError(err, "server failed to send message to client")
+
+		cmd, err = serverSession2.Receive()
+		assert.NoError(err, "server failed to receive session command")
+
+		_, ok = cmd.(common.DisconnectCommand)
+		assert.True(ok, "type assertion should be true")
+
+		err = serverSession2.Close()
+		assert.NoError(err, "server failed to close session")
 	}()
 
-	err := session.Initiate(clientConn)
-	assert.NoError(err, "client failed to Initiate")
-
-	err = session.Close()
-	assert.NoError(err, "client failed to Close")
-}
-
-func TestClientAuthentication(t *testing.T) {
-	assert := assert.New(t)
-	config := Config{
-		StaticKeypair: noise.DH25519.GenerateKeypair(rand.Reader),
-		Random:        rand.Reader,
-	}
-	session := New(&config, nil)
-	clientConn, serverConn := net.Pipe()
-
-	serverStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
-	serverConfig := noise.Config{}
-	serverConfig.CipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	serverConfig.Random = rand.Reader
-	serverConfig.Pattern = noise.HandshakeNN
-	serverConfig.Initiator = false
-	serverConfig.Prologue = []byte{0}
-	serverConfig.StaticKeypair = serverStaticKeypair
-	serverConfig.EphemeralKeypair = noise.DH25519.GenerateKeypair(rand.Reader)
-	serverHs := noise.NewHandshakeState(serverConfig)
-
 	go func() {
-		fmt.Println("server start")
+		// Alice encrypt message to Bob and sends it to the server
+		err := aliceSession.Initiate(aliceConn)
+		assert.NoError(err, "Alice failed to initiate session")
 
-		// server reads client's initial handshake message
-		clientHsMsg := make([]byte, 33)
-		_, err := io.ReadFull(serverConn, clientHsMsg)
-		assert.NoError(err, "server failed to receive client handshake message")
-		assert.Equal(33, len(clientHsMsg), "server received unexpected length client handshake message")
+		err = aliceSession.Send(common.MessageMessageCommand{
+			QueueSizeHint: uint8(1),
+			Sequence:      uint32(123),
+		})
+		assert.NoError(err, "Alice failed to disconnect session")
 
-		serverHsResult, _, _, err := serverHs.ReadMessage(nil, clientHsMsg[1:])
-		assert.NoError(err, "server failed to 'ReadMessage' client handshake message")
-		assert.Equal(0, len(serverHsResult), "server result message is unexpected size")
+		err = aliceSession.Send(common.DisconnectCommand{})
+		assert.NoError(err, "Alice failed to disconnect session")
 
-		serverHsMsg := make([]byte, 1)
-		hsMsg, csR0, csR1 := serverHs.WriteMessage(nil, nil)
-		serverHsMsg = append(serverHsMsg, hsMsg...)
+		err = aliceSession.Close()
+		assert.NoError(err, "Alice failed to close session")
 
-		count, err := serverConn.Write(serverHsMsg)
-		assert.NoError(err, "server failed to send handshake response message")
-		assert.Equal(count, len(serverHsMsg), "server sent incorrect length handshake message")
+		<-aliceDone
 
-		fmt.Println("server sent handshake response")
+		err = bobSession.Initiate(bobConn)
+		assert.NoError(err, "Bob failed to initiate session")
 
-		authMsg := [common.MaxPayloadSize]byte{}
-		copy(authMsg[:], []byte("AUTHENTICATE"))
-		authMsgCiphertext := csR1.Encrypt(nil, nil, authMsg[:])
-		fmt.Println("authMsgCiphertext len", len(authMsgCiphertext))
-		count, err = serverConn.Write(authMsgCiphertext)
-		fmt.Println("after server sent auth message")
-		assert.NoError(err, "server failed to send auth message")
-		assert.Equal(count, len(authMsgCiphertext), "server sent incorrect length auth message")
+		err = bobSession.Send(common.RetrieveMessageCommand{})
+		assert.NoError(err, "Bob failed to disconnect session")
 
-		fmt.Println("server sent AUTHENTICATE")
+		cmd, err := bobSession.Receive()
+		assert.NoError(err, "Bob failed to recieve session command")
 
-		clientAuthMsg := make([]byte, common.MaxPayloadSize)
-		_, err = io.ReadFull(serverConn, clientAuthMsg)
-		assert.NoError(err, "server failed to receive client auth message")
+		//message, ok := cmd.(common.MessageMessageCommand)
+		_, ok := cmd.(common.MessageMessageCommand)
+		assert.True(ok, "type assertion should be true")
 
-		fmt.Println("server received client auth")
+		err = bobSession.Send(common.DisconnectCommand{})
+		assert.NoError(err, "Bob failed to disconnect session")
 
-		res, err := csR0.Decrypt(nil, nil, clientAuthMsg)
-		assert.NoError(err, "server failed to decrypt client auth message")
-		//assert.Equal([]byte("AUTH ME"), res, "server received unexpected message")
-
-		fmt.Println("server decrypt client auth message:", string(res))
+		err = bobSession.Close()
+		assert.NoError(err, "Bob failed to close session")
 	}()
 
-	err := session.Initiate(clientConn)
-	assert.NoError(err, "client failed to Initiate")
-	fmt.Println("after Initiate")
-
-	packet := [common.MaxPayloadSize]byte{}
-
-	err = session.Receive(packet)
-	assert.NoError(err, "client failed to Receive")
-
-	copy(packet[0:], []byte("AUTH ME"))
-	err = session.Send(packet)
-	assert.NoError(err, "client failed to Send")
-	fmt.Println("after Send")
-
-	err = session.Close()
-	assert.NoError(err, "client failed to Close")
-	fmt.Println("after Close")
+	<-bobDone
 }

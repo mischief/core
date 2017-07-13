@@ -74,6 +74,18 @@ func TestCommandSendPacket(t *testing.T) {
 	assert.Equal(raw1, raw2, "serialized commands not equal")
 }
 
+func TestCommandMessageMessage(t *testing.T) {
+	assert := assert.New(t)
+	var err error
+	var cmd1, cmd2 Command
+	cmd1 = new(MessageMessageCommand)
+	raw1 := cmd1.toBytes()
+	cmd2, err = fromBytes(raw1)
+	assert.NoError(err, "fromBytes unexpectedly failed")
+	raw2 := cmd2.toBytes()
+	assert.Equal(raw1, raw2, "serialized commands not equal")
+}
+
 func TestEncryptDecrypt(t *testing.T) {
 	assert := assert.New(t)
 

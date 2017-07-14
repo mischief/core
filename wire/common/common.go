@@ -344,11 +344,16 @@ func fromBytes(raw []byte) (Command, error) {
 func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (cmd Command, err error) {
 	var plaintext []byte
 	plaintext, err = cs.Decrypt(plaintext, nil, ciphertext)
-	cs.Rekey()
 	if err != nil {
+		log.Debugf("FromCiphertextBytes fail: Decrypt: %s", err)
 		return cmd, err
 	}
+	cs.Rekey()
 	cmd, err = fromBytes(plaintext)
+	if err != nil {
+		log.Debugf("FromCiphertextBytes fail: fromBytes: %s", err)
+		return nil, err
+	}
 	return cmd, err
 }
 
@@ -359,6 +364,7 @@ func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 	rawLen := make([]byte, 2)
 	_, err := io.ReadFull(conn, rawLen)
 	if err != nil {
+		log.Debugf("ReceiveCommand fail: 1st ReadFull: %s", err)
 		return nil, err
 	}
 
@@ -366,10 +372,15 @@ func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 	ciphertext := make([]byte, ciphertextLen)
 	_, err = io.ReadFull(conn, ciphertext)
 	if err != nil {
+		log.Debugf("ReceiveCommand fail: 2nd ReadFull: %s", err)
 		return nil, err
 	}
 
 	cmd, err := FromCiphertextBytes(cs, ciphertext)
+	if err != nil {
+		log.Debugf("ReceiveCommand fail: FromCiphertextBytes: %s", err)
+		return nil, err
+	}
 	return cmd, err
 }
 

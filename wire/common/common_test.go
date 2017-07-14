@@ -79,7 +79,10 @@ func TestCommandMessageMessage(t *testing.T) {
 	assert := assert.New(t)
 	var err error
 	var cmd2 Command
-	message := MessageMessageCommand{}
+	message := MessageMessageCommand{
+		QueueSizeHint: uint8(1),
+		Sequence:      uint32(666),
+	}
 	count, err := rand.Read(message.EncryptedPayload[:])
 	assert.Equal(count, messagePayloadSize, "not equal")
 	raw1 := Command(message).toBytes()
@@ -129,7 +132,14 @@ func TestEncryptDecrypt(t *testing.T) {
 	assert.NoError(err, "client failed to read server handshake message")
 	assert.Equal(0, len(clientHsResult), "client result message is unexpected size")
 
-	cmd1 := AuthenticateCommand{}
+	cmd1 := MessageMessageCommand{
+		QueueSizeHint: uint8(1),
+		Sequence:      uint32(666),
+	}
+	count, err := rand.Read(cmd1.EncryptedPayload[:])
+	assert.Equal(count, len(cmd1.EncryptedPayload))
+	assert.NoError(err, "unexpected error")
+
 	ciphertext := CommandToCiphertextBytes(csR0, cmd1)
 	raw1 := cmd1.toBytes()
 

@@ -46,7 +46,7 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		Random:                    rand.Reader,
 	}
 	aliceSession := common.New(&aliceConfig, nil)
-	aliceDone := aliceSession.NotifyClosed()
+	//aliceDone := aliceSession.NotifyClosed()
 
 	bobConfig := common.Config{
 		Identifier:                []byte("bob"),
@@ -86,16 +86,20 @@ func TestClientSendReceiveMessage(t *testing.T) {
 
 		message, ok := cmd.(common.MessageMessageCommand)
 		fmt.Printf("--->message Sequence %d type %T assertion %v\n", message.Sequence, message, ok)
-		assert.True(ok, "type assertion should be true")
+		//assert.True(ok, "type assertion should be true")
+		assert.Equal(ok, true, "should be true")
 
 		cmd, err = serverSession1.Receive()
 		assert.NoError(err, "server failed to receive session command")
-
 		_, ok = cmd.(common.DisconnectCommand)
 		assert.True(ok, "type assertion should be true")
 
-		err = serverSession1.Close()
-		assert.NoError(err, "server failed to close session")
+		fmt.Println("yo")
+
+		//err = serverSession1.Close()
+		//assert.NoError(err, "server failed to close session")
+
+		fmt.Println("serverSession2") // XXX
 
 		err = serverSession2.Initiate(serverConn2)
 		assert.NoError(err, "server failed to initiate session")
@@ -116,8 +120,8 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		_, ok = cmd.(common.DisconnectCommand)
 		assert.True(ok, "type assertion should be true")
 
-		err = serverSession2.Close()
-		assert.NoError(err, "server failed to close session")
+		//err = serverSession2.Close()
+		//assert.NoError(err, "server failed to close session")
 	}()
 
 	go func() {
@@ -134,10 +138,10 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		err = aliceSession.Send(common.DisconnectCommand{})
 		assert.NoError(err, "Alice failed to disconnect session")
 
-		err = aliceSession.Close()
-		assert.NoError(err, "Alice failed to close session")
+		//err = aliceSession.Close()
+		//assert.NoError(err, "Alice failed to close session")
 
-		<-aliceDone
+		//<-aliceDone
 
 		err = bobSession.Initiate(bobConn)
 		assert.NoError(err, "Bob failed to initiate session")
@@ -155,8 +159,8 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		err = bobSession.Send(common.DisconnectCommand{})
 		assert.NoError(err, "Bob failed to disconnect session")
 
-		err = bobSession.Close()
-		assert.NoError(err, "Bob failed to close session")
+		//err = bobSession.Close()
+		//assert.NoError(err, "Bob failed to close session")
 	}()
 
 	<-bobDone

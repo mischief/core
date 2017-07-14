@@ -39,6 +39,10 @@ const (
 	// messageOverhead is the number of bytes before the message's payload
 	messageOverhead = 4
 
+	// messageMessageOverhead is the number of bytes before the
+	// inner message's message
+	messageMessageOverhead = 5
+
 	// messageMaxSize is the size of a message
 	messageMaxSize = MaxPayloadSize + messageOverhead
 
@@ -101,7 +105,7 @@ const (
 	// retreiveMessageSize is the size of the retreiveMessage command, a 32 bit sequence
 	retreiveMessageSize = 4
 
-	messagePayloadSize = 30000 // XXX fix me
+	messagePayloadSize = 30 // XXX fix me
 
 	// messageTypeMessage specifies that the MessageCommand is to transmit
 	// a message instead of an ACKnowledgement
@@ -198,7 +202,7 @@ type MessageMessageCommand struct {
 }
 
 func (c MessageMessageCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+messageMessageSize+100)
+	out := make([]byte, messageOverhead+messageMessageOverhead+messageMessageOverhead+messagePayloadSize)
 	out[0] = byte(message)
 	out[1] = reserved
 	// out[2:6] is written as msg_length in the spec
@@ -312,10 +316,12 @@ func fromBytes(raw []byte) (Command, error) {
 	case message:
 		fmt.Println("message")
 		// XXX todo: finish me
-		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
+		if len(raw) != messageOverhead+(messageMessageOverhead*2)+messagePayloadSize-1 {
+			fmt.Println("ERROR1")
 			return nil, errInvalidCommand
 		}
 		if raw[0] != byte(0) { // reserved field
+			fmt.Println("ERROR2")
 			return nil, errInvalidCommand
 		}
 		messageSize := binary.BigEndian.Uint32(raw[1:5])
@@ -331,7 +337,7 @@ func fromBytes(raw []byte) (Command, error) {
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
-			copy(cmd.EncryptedPayload[:], raw[10:10+messageSize])
+			copy(cmd.EncryptedPayload[:], raw[10:10+messagePayloadSize]) // XXX correct?
 			return cmd, nil
 		case messageTypeAck:
 			fmt.Println("Ack")

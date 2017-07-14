@@ -18,6 +18,7 @@ package common
 
 import (
 	"crypto/rand"
+	"fmt"
 	"net"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestCommandNoOp(t *testing.T) {
 	assert := assert.New(t)
 	var err error
 	var cmd1, cmd2 Command
-	cmd1 = new(NoOpCommand)
+	cmd1 = NoOpCommand{}
 	raw1 := cmd1.toBytes()
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
@@ -42,7 +43,7 @@ func TestCommandDisconnect(t *testing.T) {
 	assert := assert.New(t)
 	var err error
 	var cmd1, cmd2 Command
-	cmd1 = new(DisconnectCommand)
+	cmd1 = DisconnectCommand{}
 	raw1 := cmd1.toBytes()
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
@@ -54,7 +55,7 @@ func TestCommandAuthenticate(t *testing.T) {
 	assert := assert.New(t)
 	var err error
 	var cmd1, cmd2 Command
-	cmd1 = new(AuthenticateCommand)
+	cmd1 = AuthenticateCommand{}
 	raw1 := cmd1.toBytes()
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
@@ -66,7 +67,7 @@ func TestCommandSendPacket(t *testing.T) {
 	assert := assert.New(t)
 	var err error
 	var cmd1, cmd2 Command
-	cmd1 = new(SendPacketCommand)
+	cmd1 = SendPacketCommand{}
 	raw1 := cmd1.toBytes()
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
@@ -77,9 +78,12 @@ func TestCommandSendPacket(t *testing.T) {
 func TestCommandMessageMessage(t *testing.T) {
 	assert := assert.New(t)
 	var err error
-	var cmd1, cmd2 Command
-	cmd1 = new(MessageMessageCommand)
-	raw1 := cmd1.toBytes()
+	var cmd2 Command
+	message := MessageMessageCommand{}
+	count, err := rand.Read(message.EncryptedPayload[:])
+	assert.Equal(count, messagePayloadSize, "not equal")
+	raw1 := Command(message).toBytes()
+	fmt.Println("messagemessage bytes", raw1)
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
 	raw2 := cmd2.toBytes()

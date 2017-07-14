@@ -83,11 +83,11 @@ func TestCommandMessageMessage(t *testing.T) {
 	count, err := rand.Read(message.EncryptedPayload[:])
 	assert.Equal(count, messagePayloadSize, "not equal")
 	raw1 := Command(message).toBytes()
-	fmt.Println("messagemessage bytes", raw1)
 	cmd2, err = fromBytes(raw1)
 	assert.NoError(err, "fromBytes unexpectedly failed")
 	raw2 := cmd2.toBytes()
 	assert.Equal(raw1, raw2, "serialized commands not equal")
+	fmt.Println(raw1)
 }
 
 func TestEncryptDecrypt(t *testing.T) {

@@ -33,6 +33,8 @@ import (
 var log = logging.MustGetLogger("session")
 
 const (
+	messagePayloadSize = 30 // XXX fix me
+
 	// MaxPayloadSize is the maximum payload size permitted by wire protocol
 	MaxPayloadSize = 65515
 
@@ -41,7 +43,7 @@ const (
 
 	// messageMessageOverhead is the number of bytes before the
 	// inner message's message
-	messageMessageOverhead = 5
+	messageMessageOverhead = 6
 
 	// messageMaxSize is the size of a message
 	messageMaxSize = MaxPayloadSize + messageOverhead
@@ -104,8 +106,6 @@ const (
 
 	// retreiveMessageSize is the size of the retreiveMessage command, a 32 bit sequence
 	retreiveMessageSize = 4
-
-	messagePayloadSize = 30 // XXX fix me
 
 	// messageTypeMessage specifies that the MessageCommand is to transmit
 	// a message instead of an ACKnowledgement
@@ -202,17 +202,16 @@ type MessageMessageCommand struct {
 }
 
 func (c MessageMessageCommand) toBytes() []byte {
-	out := make([]byte, messageOverhead+messageMessageOverhead+messageMessageOverhead+messagePayloadSize)
+	out := make([]byte, messageOverhead+messageMessageOverhead+messagePayloadSize)
 	out[0] = byte(message)
 	out[1] = reserved
 	// out[2:6] is written as msg_length in the spec
-	binary.BigEndian.PutUint32(out[2:6], messageMessageSize)
+	binary.BigEndian.PutUint16(out[2:4], uint16(0)) // XXX fix me
 	// out[4:] inner messageACK struct fields follow:
-	out[6] = messageTypeMessage
-	out[7] = c.QueueSizeHint
-	binary.BigEndian.PutUint32(out[8:12], c.Sequence)
-
-	copy(out[12:], c.EncryptedPayload[:])
+	out[4] = messageTypeMessage
+	out[5] = c.QueueSizeHint
+	binary.BigEndian.PutUint32(out[6:10], c.Sequence)
+	copy(out[10:], c.EncryptedPayload[:])
 	return out
 }
 
@@ -249,12 +248,10 @@ func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []
 
 // fromBytes converts a byte slice to a command structure
 func fromBytes(raw []byte) (Command, error) {
-	fmt.Println("fromBytes")
 	cmd := raw[0]
 	raw = raw[1:]
 	switch commandID(cmd) {
 	case noOp:
-		fmt.Println("noOp")
 		if len(raw) != int(noOpSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -263,7 +260,6 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return NoOpCommand{}, nil
 	case disconnect:
-		fmt.Println("disconnect")
 		if len(raw) != int(disconnectSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -272,7 +268,6 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return DisconnectCommand{}, nil
 	case authenticate:
-		fmt.Println("authenticate")
 		if len(raw) != authCmdSize+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -288,7 +283,6 @@ func fromBytes(raw []byte) (Command, error) {
 		cmd.UnixTime = binary.BigEndian.Uint32(raw[ed25519KeySize+ed25519SignatureSize+additionalDataSize:])
 		return cmd, nil
 	case sendPacket:
-		fmt.Println("sendPacket")
 		if len(raw) != SphinxPacketSize+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -301,7 +295,6 @@ func fromBytes(raw []byte) (Command, error) {
 		copy(cmd.SphinxPacket[:], raw)
 		return cmd, nil
 	case retreiveMessage:
-		fmt.Println("retrieveMessage")
 		if len(raw) != int(retreiveMessageSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
 		}
@@ -314,22 +307,14 @@ func fromBytes(raw []byte) (Command, error) {
 		}
 		return cmd, nil
 	case message:
-		fmt.Println("message")
-		// XXX todo: finish me
-		if len(raw) != messageOverhead+(messageMessageOverhead*2)+messagePayloadSize-1 {
-			fmt.Println("ERROR1")
-			return nil, errInvalidCommand
-		}
+		// XXX todo: fix me
 		if raw[0] != byte(0) { // reserved field
-			fmt.Println("ERROR2")
 			return nil, errInvalidCommand
 		}
-		messageSize := binary.BigEndian.Uint32(raw[1:5])
-		messageType := raw[5]
-		queueSizeHint := raw[6]
-		sequence := binary.BigEndian.Uint32(raw[6:10])
-
-		fmt.Printf("<<>>MESSAGE\n")
+		//messageSize := binary.BigEndian.Uint16(raw[1:3]) // msg_length is wire-protocol.txt spec
+		messageType := raw[3] // type field of Message struct in end_to_end.txt spec
+		queueSizeHint := raw[4]
+		sequence := binary.BigEndian.Uint32(raw[5:9])
 
 		switch byte(messageType) {
 		case messageTypeMessage:
@@ -337,16 +322,15 @@ func fromBytes(raw []byte) (Command, error) {
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
-			copy(cmd.EncryptedPayload[:], raw[10:10+messagePayloadSize]) // XXX correct?
+			copy(cmd.EncryptedPayload[:], raw[9:9+messagePayloadSize])
 			return cmd, nil
 		case messageTypeAck:
-			fmt.Println("Ack")
 			cmd := MessageAckCommand{
 				QueueSizeHint: queueSizeHint,
 				Sequence:      sequence,
 			}
-			copy(cmd.SURBId[:], raw[10:10+SURBIdSize])
-			copy(cmd.EncryptedPayload[:], raw[10+SURBIdSize:messageSize])
+			copy(cmd.SURBId[:], raw[9:9+SURBIdSize])
+			copy(cmd.EncryptedPayload[:], raw[9+SURBIdSize:])
 			return cmd, nil
 		}
 		return nil, errInvalidCommand

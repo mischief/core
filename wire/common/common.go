@@ -189,7 +189,7 @@ type RetrieveMessageCommand struct {
 
 func (c RetrieveMessageCommand) toBytes() []byte {
 	out := make([]byte, messageOverhead+retreiveMessageSize)
-	out[0] = byte(sendPacket)
+	out[0] = byte(retreiveMessage)
 	out[1] = reserved
 	binary.BigEndian.PutUint32(out[2:6], retreiveMessageSize)
 	return out
@@ -241,6 +241,7 @@ func (c MessageAckCommand) toBytes() []byte {
 // structures to ciphertext bytes
 func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []byte) {
 	raw := cmd.toBytes()
+
 	ciphertext = cs.Encrypt(ciphertext, nil, raw)
 	cs.Rekey()
 	return ciphertext
@@ -248,9 +249,9 @@ func CommandToCiphertextBytes(cs *noise.CipherState, cmd Command) (ciphertext []
 
 // fromBytes converts a byte slice to a command structure
 func fromBytes(raw []byte) (Command, error) {
-	cmd := raw[0]
+	cmdId := raw[0]
 	raw = raw[1:]
-	switch commandID(cmd) {
+	switch commandID(cmdId) {
 	case noOp:
 		if len(raw) != int(noOpSize)+messageOverhead-1 {
 			return nil, errInvalidCommand
@@ -341,20 +342,21 @@ func fromBytes(raw []byte) (Command, error) {
 
 // FromCiphertextBytes converts ciphertext
 // bytes to Command structures
-func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (cmd Command, err error) {
+func FromCiphertextBytes(cs *noise.CipherState, ciphertext []byte) (Command, error) {
 	var plaintext []byte
+	var err error
 	plaintext, err = cs.Decrypt(plaintext, nil, ciphertext)
 	if err != nil {
 		log.Debugf("FromCiphertextBytes fail: Decrypt: %s", err)
-		return cmd, err
+		return nil, err
 	}
 	cs.Rekey()
-	cmd, err = fromBytes(plaintext)
+	cmd, err := fromBytes(plaintext)
 	if err != nil {
 		log.Debugf("FromCiphertextBytes fail: fromBytes: %s", err)
 		return nil, err
 	}
-	return cmd, err
+	return Command(cmd), err
 }
 
 // ReceiveCommand reads the next wire protocol command
@@ -375,7 +377,6 @@ func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 		log.Debugf("ReceiveCommand fail: 2nd ReadFull: %s", err)
 		return nil, err
 	}
-
 	cmd, err := FromCiphertextBytes(cs, ciphertext)
 	if err != nil {
 		log.Debugf("ReceiveCommand fail: FromCiphertextBytes: %s", err)
@@ -388,7 +389,7 @@ func ReceiveCommand(cs *noise.CipherState, conn io.Reader) (Command, error) {
 func SendPacket(cmd Command, cs *noise.CipherState, conn io.Writer) error {
 	ciphertext := CommandToCiphertextBytes(cs, cmd)
 	ciphertextLen := len(ciphertext)
-	packet := make([]byte, ciphertextLen+2)
+	packet := make([]byte, ciphertextLen+2) // add two for a uint16 big endian length field
 	binary.BigEndian.PutUint16(packet[0:2], uint16(ciphertextLen))
 	copy(packet[2:], ciphertext)
 
@@ -681,59 +682,16 @@ func (s *Session) Initiate(conn io.ReadWriteCloser) (err error) {
 	return err
 }
 
-// hasReceiveError evaluates a received command
-// and returns an error if the command
-// is invalid for client or server
-func (s *Session) hasReceiveError(cmd Command) error {
-	switch cmd.(type) {
-	case SendPacketCommand:
-		if s.noiseConfig.Initiator {
-			err := s.Close()
-			if err != nil {
-				return fmt.Errorf("Error, server received sendPacket command: failed to close: %s", err)
-			}
-			return errors.New("Error, server received sendPacket command.")
-		}
-	case RetrieveMessageCommand:
-		if s.noiseConfig.Initiator {
-			err := s.Close()
-			if err != nil {
-				return fmt.Errorf("Error, client received retrieveMessage command: failed to close: %s", err)
-			}
-			return errors.New("Error, client received retrieveMessage command.")
-		}
-	case MessageMessageCommand:
-		if !s.noiseConfig.Initiator {
-			err := s.Close()
-			if err != nil {
-				return fmt.Errorf("Error, server received MessageMessage command: failed to close: %s", err)
-			}
-			return errors.New("Error, server received MessageMessage command.")
-		}
-	case MessageAckCommand:
-		if !s.noiseConfig.Initiator {
-			err := s.Close()
-			if err != nil {
-				return fmt.Errorf("Error, server received MessageAck command: failed to close: %s", err)
-			}
-			return errors.New("Error, server received MessageAck command.")
-		}
-	}
-	return nil
-}
-
 // Receive receives a Command
-func (s *Session) Receive() (cmd Command, err error) {
+func (s *Session) Receive() (Command, error) {
+	var err error
+	var cmd Command
 	if s.noiseConfig.Initiator {
 		log.Debug("client Receive")
 		cmd, err = ReceiveCommand(s.cipherState0, s.conn)
 	} else {
 		log.Debug("server Receive")
 		cmd, err = ReceiveCommand(s.cipherState1, s.conn)
-	}
-	err = s.hasReceiveError(cmd)
-	if err != nil {
-		return nil, err
 	}
 	return cmd, err
 }

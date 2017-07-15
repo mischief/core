@@ -18,7 +18,6 @@ package common
 
 import (
 	"crypto/rand"
-	"fmt"
 	"net"
 	"testing"
 
@@ -85,12 +84,16 @@ func TestCommandMessageMessage(t *testing.T) {
 	}
 	count, err := rand.Read(message.EncryptedPayload[:])
 	assert.Equal(count, messagePayloadSize, "not equal")
-	raw1 := Command(message).toBytes()
+	raw1 := message.toBytes()
 	cmd2, err = fromBytes(raw1)
+
+	cmd, ok := cmd2.(MessageMessageCommand)
+	assert.True(ok, "ok should be True")
+	assert.Equal(message.Sequence, cmd.Sequence, "Sequences should be equal")
+
 	assert.NoError(err, "fromBytes unexpectedly failed")
 	raw2 := cmd2.toBytes()
 	assert.Equal(raw1, raw2, "serialized commands not equal")
-	fmt.Println(raw1)
 }
 
 func TestEncryptDecrypt(t *testing.T) {
@@ -145,8 +148,11 @@ func TestEncryptDecrypt(t *testing.T) {
 
 	cmd2, err := FromCiphertextBytes(csI0, ciphertext)
 	assert.NoError(err, "FromCiphertextBytes failed")
-	raw2 := cmd2.toBytes()
 
+	cmd, _ := cmd2.(MessageMessageCommand)
+	assert.Equal(cmd.Sequence, cmd1.Sequence, "MessageMessage Command Sequence fields should be equal")
+
+	raw2 := cmd2.toBytes()
 	assert.Equal(raw1, raw2, "byte slices should be equal")
 
 	ciphertext = CommandToCiphertextBytes(csI1, cmd1)

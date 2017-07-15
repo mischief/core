@@ -84,22 +84,16 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		cmd, err := serverSession1.Receive()
 		assert.NoError(err, "server failed to receive session command")
 
-		message, ok := cmd.(common.MessageMessageCommand)
-		fmt.Printf("--->message Sequence %d type %T assertion %v\n", message.Sequence, message, ok)
-		//assert.True(ok, "type assertion should be true")
-		assert.Equal(ok, true, "should be true")
+		cmd2, ok := cmd.(common.MessageMessageCommand)
+		assert.True(ok, "type assertion should be true")
 
 		cmd, err = serverSession1.Receive()
 		assert.NoError(err, "server failed to receive session command")
 		_, ok = cmd.(common.DisconnectCommand)
 		assert.True(ok, "type assertion should be true")
 
-		fmt.Println("yo")
-
-		//err = serverSession1.Close()
-		//assert.NoError(err, "server failed to close session")
-
-		fmt.Println("serverSession2") // XXX
+		err = serverSession1.Close()
+		assert.NoError(err, "server failed to close session")
 
 		err = serverSession2.Initiate(serverConn2)
 		assert.NoError(err, "server failed to initiate session")
@@ -107,11 +101,10 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		cmd, err = serverSession2.Receive()
 		assert.NoError(err, "server failed to receive session command")
 
-		//retreiveMessage, ok := cmd.(common.RetrieveMessageCommand)
 		_, ok = cmd.(common.RetrieveMessageCommand)
 		assert.True(ok, "type assertion should be true")
 
-		err = serverSession2.Send(message)
+		err = serverSession2.Send(cmd2)
 		assert.NoError(err, "server failed to send message to client")
 
 		cmd, err = serverSession2.Receive()
@@ -120,8 +113,8 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		_, ok = cmd.(common.DisconnectCommand)
 		assert.True(ok, "type assertion should be true")
 
-		//err = serverSession2.Close()
-		//assert.NoError(err, "server failed to close session")
+		err = serverSession2.Close()
+		assert.NoError(err, "server failed to close session")
 	}()
 
 	go func() {
@@ -129,17 +122,18 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		err := aliceSession.Initiate(aliceConn)
 		assert.NoError(err, "Alice failed to initiate session")
 
-		err = aliceSession.Send(common.MessageMessageCommand{
+		cmd := common.MessageMessageCommand{
 			QueueSizeHint: uint8(1),
 			Sequence:      uint32(123),
-		})
-		assert.NoError(err, "Alice failed to disconnect session")
+		}
+		err = aliceSession.Send(cmd)
+		assert.NoError(err, "Alice failed to send")
 
 		err = aliceSession.Send(common.DisconnectCommand{})
 		assert.NoError(err, "Alice failed to disconnect session")
 
-		//err = aliceSession.Close()
-		//assert.NoError(err, "Alice failed to close session")
+		err = aliceSession.Close()
+		assert.NoError(err, "Alice failed to close session")
 
 		//<-aliceDone
 
@@ -149,18 +143,23 @@ func TestClientSendReceiveMessage(t *testing.T) {
 		err = bobSession.Send(common.RetrieveMessageCommand{})
 		assert.NoError(err, "Bob failed to disconnect session")
 
-		cmd, err := bobSession.Receive()
+		cmd1, err := bobSession.Receive()
 		assert.NoError(err, "Bob failed to recieve session command")
 
-		//message, ok := cmd.(common.MessageMessageCommand)
-		_, ok := cmd.(common.MessageMessageCommand)
+		switch v := cmd1.(type) {
+		case common.MessageMessageCommand:
+			fmt.Println("messageMessage command type", v)
+		default:
+			fmt.Println("unknown command type", v)
+		}
+		_, ok := cmd1.(common.MessageMessageCommand)
 		assert.True(ok, "type assertion should be true")
 
 		err = bobSession.Send(common.DisconnectCommand{})
 		assert.NoError(err, "Bob failed to disconnect session")
 
-		//err = bobSession.Close()
-		//assert.NoError(err, "Bob failed to close session")
+		err = bobSession.Close()
+		assert.NoError(err, "Bob failed to close session")
 	}()
 
 	<-bobDone

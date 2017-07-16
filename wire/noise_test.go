@@ -18,13 +18,14 @@ package client
 
 import (
 	"crypto/rand"
+	"fmt"
 	"testing"
 
 	"github.com/Katzenpost/noise"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNoiseParams(t *testing.T) {
+func TestNoiseParams1(t *testing.T) {
 	assert := assert.New(t)
 
 	clientStaticKeypair := noise.DH25519.GenerateKeypair(rand.Reader)
@@ -94,4 +95,42 @@ func TestNoiseParams(t *testing.T) {
 	res, err = csI1.Decrypt(nil, nil, msg)
 	assert.NoError(err, "Decrypt should not have failed")
 	assert.Equal(serverMessage, res, "client received unexpected message")
+}
+
+func TestNoiseParams2(t *testing.T) {
+	assert := assert.New(t)
+
+	csAlice := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	csBob := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	staticAlice := csAlice.GenerateKeypair(rand.Reader)
+	staticBob := csBob.GenerateKeypair(rand.Reader)
+	hsAlice := noise.NewHandshakeState(noise.Config{
+		CipherSuite:   csAlice,
+		Random:        rand.Reader,
+		Pattern:       noise.HandshakeX,
+		Initiator:     true,
+		StaticKeypair: staticAlice,
+		PeerStatic:    staticBob.Public,
+	})
+
+	hsBob := noise.NewHandshakeState(noise.Config{
+		CipherSuite:   csBob,
+		Random:        rand.Reader,
+		Pattern:       noise.HandshakeX,
+		Initiator:     false,
+		StaticKeypair: staticBob,
+		//PeerStatic:    staticAlice.Public,
+	})
+
+	plaintext1 := []byte("yoyo")
+	res1, cs10, _ := hsAlice.WriteMessage(nil, staticBob.Public)
+	fmt.Println("res", res1)
+	ciphertext1 := cs10.Encrypt(nil, nil, plaintext1)
+	fmt.Printf("alice's ciphertext %x\n", ciphertext1)
+
+	res, cs20, _, err := hsBob.ReadMessage(nil, nil)
+	assert.NoError(err, "wtf")
+	plaintext2, err := cs20.Decrypt(nil, nil, res)
+	assert.NoError(err, "wtf")
+	fmt.Println("plaintext2", plaintext2)
 }

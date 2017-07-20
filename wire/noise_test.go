@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Katzenpost/noise"
+	"github.com/katzenpost/noise"
 	"github.com/stretchr/testify/assert"
 )
 

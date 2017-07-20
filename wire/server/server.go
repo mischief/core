@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Katzenpost/core/wire/common"
+	"github.com/katzenpost/core/wire/common"
 	"github.com/op/go-logging"
 )
 

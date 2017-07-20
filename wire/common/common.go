@@ -24,8 +24,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/Katzenpost/core/utils"
-	"github.com/Katzenpost/noise"
+	"github.com/katzenpost/core/utils"
+	"github.com/katzenpost/noise"
 	"github.com/op/go-logging"
 	"golang.org/x/crypto/ed25519"
 )

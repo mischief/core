@@ -22,7 +22,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/Katzenpost/core/wire/common"
+	"github.com/katzenpost/core/wire/common"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ed25519"
 )

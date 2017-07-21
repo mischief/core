@@ -18,7 +18,6 @@ package client
 
 import (
 	"crypto/rand"
-	"fmt"
 	"testing"
 
 	"github.com/katzenpost/noise"
@@ -100,12 +99,19 @@ func TestNoiseParams1(t *testing.T) {
 func TestNoiseParams2(t *testing.T) {
 	assert := assert.New(t)
 
-	csAlice := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	csBob := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
-	staticAlice := csAlice.GenerateKeypair(rand.Reader)
-	staticBob := csBob.GenerateKeypair(rand.Reader)
+	const plaintext = "Ich sage euch: man muss noch Chaos in sich haben, um einen tanzenden Stern gebären zu können. Ich sage euch: ihr habt noch Chaos in euch."
+
+	// Both parties generate long term ECDH keypairs, that are known to each
+	// other via some out of band mechanism.
+	csStaticAlice := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	staticAlice := csStaticAlice.GenerateKeypair(rand.Reader)
+
+	csStaticBob := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	staticBob := csStaticBob.GenerateKeypair(rand.Reader)
+
+	// Alice constructs a handshake state with both static keys.
 	hsAlice := noise.NewHandshakeState(noise.Config{
-		CipherSuite:   csAlice,
+		CipherSuite:   csStaticAlice,
 		Random:        rand.Reader,
 		Pattern:       noise.HandshakeX,
 		Initiator:     true,
@@ -113,24 +119,28 @@ func TestNoiseParams2(t *testing.T) {
 		PeerStatic:    staticBob.Public,
 	})
 
+	// Build a BlockCiphertext via noise.
+	msgAlice, _, _ := hsAlice.WriteMessage(nil, []byte(plaintext))
+	assert.Equal(32+16+32+16+len(plaintext), len(msgAlice))
+
+	// Alice sends msgAlice to Bob and is done.
+
+	// Bob constructs a handshake state with his static key (one use).
 	hsBob := noise.NewHandshakeState(noise.Config{
-		CipherSuite:   csBob,
+		CipherSuite:   csStaticBob,
 		Random:        rand.Reader,
 		Pattern:       noise.HandshakeX,
 		Initiator:     false,
 		StaticKeypair: staticBob,
-		//PeerStatic:    staticAlice.Public,
 	})
 
-	plaintext1 := []byte("yoyo")
-	res1, cs10, _ := hsAlice.WriteMessage(nil, staticBob.Public)
-	fmt.Println("res", res1)
-	ciphertext1 := cs10.Encrypt(nil, nil, plaintext1)
-	fmt.Printf("alice's ciphertext %x\n", ciphertext1)
+	// Bob processes msgAlice all at once.
+	msgBob, _, _, err := hsBob.ReadMessage(nil, msgAlice)
+	assert.NoError(err, "hsBob.ReadMessage()")
 
-	res, cs20, _, err := hsBob.ReadMessage(nil, nil)
-	assert.NoError(err, "wtf")
-	plaintext2, err := cs20.Decrypt(nil, nil, res)
-	assert.NoError(err, "wtf")
-	fmt.Println("plaintext2", plaintext2)
+	// Ta dah!
+	//   msgBob: plaintext
+	//   hsBob.PeerStatic(): aliceStatic.Public
+	assert.Equal(staticAlice.Public, hsBob.PeerStatic(), "static key mismatch")
+	assert.Equal([]byte(plaintext), []byte(msgBob), "plaintext mismatch")
 }

@@ -17,8 +17,10 @@
 package client
 
 import (
+	"crypto/rand"
 	"testing"
 
+	"github.com/katzenpost/noise"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,5 +36,37 @@ func TestBlockToBytesFromBytes(t *testing.T) {
 	block2 := FromBytes(raw1)
 	raw2 := block2.toBytes()
 
+	assert.Equal(raw1, raw2, "byte slices should be equal")
+}
+
+func TestBlockEncryptDecrypt(t *testing.T) {
+	assert := assert.New(t)
+
+	ciphersuite := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b)
+	static1 := ciphersuite.GenerateKeypair(rand.Reader)
+	var static1PubKey, static1PrivKey [32]byte
+	copy(static1PubKey[:], static1.Public)
+	copy(static1PrivKey[:], static1.Private)
+	client1 := NewBlockClient(&static1PubKey, &static1PrivKey, rand.Reader)
+
+	static2 := ciphersuite.GenerateKeypair(rand.Reader)
+	var static2PubKey, static2PrivKey [32]byte
+	copy(static2PubKey[:], static2.Public)
+	copy(static2PrivKey[:], static2.Private)
+	client2 := NewBlockClient(&static2PubKey, &static2PrivKey, rand.Reader)
+
+	block1 := Block{}
+	copy(block1.messageId[:], []byte(string("message id")))
+	block1.totalBlocks = uint16(3)
+	block1.blockId = uint16(96)
+	copy(block1.block, []byte(string("zomg bbq wtf lol")))
+
+	ciphertext1 := client1.EncryptBlock(static2PubKey, &block1)
+
+	block2, err := client2.DecryptBlock(ciphertext1)
+	assert.NoError(err, "error not expected")
+
+	raw1 := block1.toBytes()
+	raw2 := block2.toBytes()
 	assert.Equal(raw1, raw2, "byte slices should be equal")
 }

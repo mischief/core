@@ -19,6 +19,9 @@ package client
 
 import (
 	"encoding/binary"
+	"io"
+
+	"github.com/katzenpost/noise"
 )
 
 const (
@@ -58,12 +61,51 @@ func FromBytes(raw []byte) *Block {
 	return &b
 }
 
-type BlockFactory struct {
-	// LongtermX25519PublicKey is the client's longterm X25519 public key
-	// used for end to end client communication
-	LongtermX25519PublicKey *[32]byte
+type BlockClient struct {
+	longtermKeypair noise.DHKey
+	cipherSuite     noise.CipherSuite
+	random          io.Reader
+}
 
-	// LongtermX25519PrivateKey is the client's longterm X25519 private key
-	// used for end to end client communication
-	LongtermX25519PrivateKey *[32]byte
+func NewBlockClient(LongtermX25519PublicKey, LongtermX25519PrivateKey *[32]byte, random io.Reader) *BlockClient {
+	keypair := noise.DHKey{
+		Private: LongtermX25519PrivateKey[:],
+		Public:  LongtermX25519PublicKey[:],
+	}
+	blockClient := BlockClient{
+		random:          random,
+		longtermKeypair: keypair,
+		cipherSuite:     noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
+	}
+	return &blockClient
+}
+
+func (c *BlockClient) EncryptBlock(peerPublicKey [32]byte, b *Block) []byte {
+	handshakeState := noise.NewHandshakeState(noise.Config{
+		CipherSuite:   c.cipherSuite,
+		Random:        c.random,
+		Pattern:       noise.HandshakeX,
+		Initiator:     true,
+		StaticKeypair: c.longtermKeypair,
+		PeerStatic:    peerPublicKey[:],
+	})
+	plaintext := b.toBytes()
+	ciphertext, _, _ := handshakeState.WriteMessage(nil, plaintext)
+	return ciphertext
+}
+
+func (c *BlockClient) DecryptBlock(ciphertext []byte) (*Block, error) {
+	handshakeState := noise.NewHandshakeState(noise.Config{
+		CipherSuite:   c.cipherSuite,
+		Random:        c.random,
+		Pattern:       noise.HandshakeX,
+		Initiator:     false,
+		StaticKeypair: c.longtermKeypair,
+	})
+
+	plaintext, _, _, err := handshakeState.ReadMessage(nil, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	return FromBytes(plaintext), nil
 }

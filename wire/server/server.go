@@ -18,11 +18,11 @@
 package server
 
 import (
+	"io"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/katzenpost/core/wire/common"
 	"github.com/op/go-logging"
 )
 
@@ -44,25 +44,25 @@ var defaultOptions = Options{
 // Server is the server wire protocol struct
 // for our link layer.
 type Server struct {
-	options   *Options
-	network   string
-	address   string
-	conns     []net.Conn
-	listener  net.Listener
-	waitGroup *sync.WaitGroup
-	stopping  bool
-	session   common.Session
+	options            *Options
+	network            string
+	address            string
+	conns              []net.Conn
+	listener           net.Listener
+	waitGroup          *sync.WaitGroup
+	stopping           bool
+	connectionCallback func(io.ReadWriteCloser) error
 }
 
 // New creates a new Server given
 // network, address strings and options
-func New(network, address string, session common.Session, options *Options) *Server {
+func New(network, address string, connectionCallback func(io.ReadWriteCloser) error, options *Options) *Server {
 	wire := Server{
-		network:   network,
-		address:   address,
-		session:   session,
-		stopping:  false,
-		waitGroup: &sync.WaitGroup{},
+		network:            network,
+		address:            address,
+		stopping:           false,
+		waitGroup:          &sync.WaitGroup{},
+		connectionCallback: connectionCallback,
 	}
 	if options == nil {
 		wire.options = &defaultOptions
@@ -160,7 +160,7 @@ func (w *Server) handleConnection(conn net.Conn, id int) {
 	}()
 
 	log.Debugf("Starting connection #%d", id)
-	if err := w.session.Initiate(conn); err != nil {
-		log.Debugf("server session initiation error: %s", err.Error())
+	if err := w.connectionCallback(conn); err != nil {
+		log.Debugf(err.Error())
 	}
 }

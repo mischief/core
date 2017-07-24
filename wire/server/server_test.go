@@ -29,7 +29,7 @@ import (
 
 type EchoSession struct{}
 
-func (e EchoSession) Initiate(conn io.ReadWriter) error {
+func (e EchoSession) Initiate(conn io.ReadWriteCloser) error {
 	if _, err := io.Copy(conn, conn); err != nil {
 		fmt.Println(err.Error())
 		return err
@@ -51,7 +51,7 @@ func TestServer(t *testing.T) {
 	network := "tcp"
 	address := "127.0.0.1:33692"
 	echoSession := EchoSession{}
-	l := New(network, address, echoSession, nil)
+	l := New(network, address, echoSession.Initiate, nil)
 	defer l.Stop()
 	go func() {
 		err := l.Start()
